@@ -1,10 +1,9 @@
-#include "wifi_mod.h"
+#include "wifi_config.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "config.h"
 
 static const char *TAG = "WiFi_STA";
 

@@ -1,12 +1,12 @@
 #include "mpu6050.h"
 #include "esp_log.h"
+#include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "config.h"
 #include <math.h>
 
 static i2c_master_bus_handle_t bus_handle = NULL; // 定义I2C总线句柄和设备句柄
-static i2c_master_dev_handle_t dev_handle = NULL; // 用于存储I2C设备句柄
+static i2c_master_dev_handle_t dev_handle = NULL; // I2C设备句柄
 
 static const char *TAG = "MPU6050";
 
@@ -37,7 +37,7 @@ void mpu6050_init(void)
         .scl_speed_hz = MPU6050_CLK_SPEED_HZ,
     };
     
-    // 添加设备到总线
+    // 添加主设备到总线
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle));
 
     // 唤醒设备：写PWR_MGMT_1寄存器（0x6B），设置值为0
@@ -49,15 +49,15 @@ void mpu6050_init(void)
 
 void mpu6050_read_gyro(mpu6050_data_t *data) 
 {
-    uint8_t reg_addr = 0x43;  // GYRO_XOUT_H寄存器地址
+    uint8_t reg_addr = 0x43;  // 陀螺仪测量值读取地址
     uint8_t raw_data[6];      // 存储6字节原始数据（X/Y/Z各2字节）
 
-    // 执行I2C读操作
+    // 读数据
     ESP_ERROR_CHECK(i2c_master_transmit_receive(
         dev_handle,
-        &reg_addr, 1,        // 发送寄存器地址
+        &reg_addr, 1,               // 发送寄存器地址与地址大小（字节）
         raw_data, sizeof(raw_data), // 接收数据
-        -1                   // 无限等待
+        -1                          // 一直等待，直到操作完成
     ));
 
     // 组合高低字节数据（大端模式）

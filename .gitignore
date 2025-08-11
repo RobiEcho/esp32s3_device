@@ -1,6 +1,3 @@
 build/
 .devcontainer/
 .vscode/
-.git.zip
-main/C_firefly.h
-main/firefly.h

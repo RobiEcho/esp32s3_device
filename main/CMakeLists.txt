@@ -1,14 +1,5 @@
 idf_component_register(
-    SRCS 
-        "main.c"
-        "wifi/wifi_mod.c"   
-        "st7789/st7789.c"      
-        "mqtt/mqtt.c"   
-        "mpu6050/mpu6050.c"       
-    INCLUDE_DIRS 
-        "."
-        "wifi"
-        "st7789"
-        "mqtt"
-        "mpu6050"
+    SRCS "app_main.c"
+    PRIV_REQUIRES spi_flash esp_timer wifi_config mpu6050 st7789 mymqtt
+    INCLUDE_DIRS ""
 )

@@ -1,12 +1,17 @@
 #ifndef __WIFI_H__
 #define __WIFI_H__
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "esp_wifi.h"
 #include "esp_event.h"
+
+/* WiFi配置 */
+#ifndef WIFI_SSID
+#define WIFI_SSID      "80777"
+#endif
+
+#ifndef WIFI_PASS
+#define WIFI_PASS      "be663398@"
+#endif
 
 typedef void (*wifi_conn_callback_t)(void);
 
@@ -25,9 +30,5 @@ void wifi_init(wifi_conn_callback_t callback);
  * @brief 初始化并启动 WiFi STA 模式
  */
 void wifi_init_sta(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

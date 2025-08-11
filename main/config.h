@@ -1,10 +1,6 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* WiFi配置 */
 #define WIFI_SSID      "USER_E36498"
 #define WIFI_PASS      "XX687722@"
@@ -15,8 +11,6 @@ extern "C" {
 #define MQTT_RX_BUFFER_SIZE      8192 // 接收缓冲区大小
 #define MQTT_RECONNECT_INTERVAL  10 // 重连间隔（秒）
 #define MQTT_TOPIC       "6050_date"       // 发送6050数据主题
-
-/* 图像处理参数 */
 #define IMG_TOPIC        "6818_image"
 #define IMG_WIDTH        240
 #define IMG_HEIGHT       240
@@ -43,9 +37,5 @@ extern "C" {
 
 /* 应用配置 */
 #define SAMPLING_MS    50
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* __CONFIG_H__ */

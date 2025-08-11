@@ -2,11 +2,14 @@
 #define __MPU6050_H__
 
 #include "driver/i2c_master.h"
-#include "esp_err.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/* MPU6050配置 */
+#define MPU6050_I2C_ADDR        0x68    // 设备I2C地址
+#define MPU6050_I2C_PORT        I2C_NUM_0  // 使用的I2C0端口
+#define MPU6050_SDA_PIN         1       // I2C数据线引脚
+#define MPU6050_SCL_PIN         0       // I2C时钟线引脚
+#define MPU6050_CLK_SPEED_HZ    100000  // I2C通信频率(100kHz)
+#define GYRO_SCALE              131.0f  // ±250dps灵敏度
 
 /**
  * @brief 陀螺仪原始数据结构体
@@ -45,9 +48,5 @@ void mpu6050_calibrate_gyro(mpu6050_data_t *bias, uint16_t samples);
  * @return 更新后的角度值
  */
 float mpu6050_calculate_angle(float prev_angle, float gyro_rate, float dt);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif //__MPU6050_H__

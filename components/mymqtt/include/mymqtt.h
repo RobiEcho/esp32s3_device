@@ -1,17 +1,18 @@
-#ifndef __MQTT_H__
-#define __MQTT_H__
+#ifndef __MYMQTT_H__
+#define __MYMQTT_H__
 
 #include "mqtt_client.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// mqtt视频帧头部
-typedef struct {
-    uint32_t frame_id;// 帧ID
-    uint32_t frame_len;// payload长度
-} __attribute__((packed)) frame_header_t;
+/* MQTT配置 */
+#define MQTT_URI       "mqtt://192.168.1.95:1883"
+#define MQTT_CLIENT_ID "esp32s3_Client"
+#define MQTT_RX_BUFFER_SIZE      8192 // 接收缓冲区大小
+#define MQTT_RECONNECT_INTERVAL  10 // 重连间隔（秒）
+#define MQTT_TOPIC       "6050_date"       // 发送6050数据主题
+#define IMG_TOPIC        "6818_image"
+#define IMG_WIDTH        240
+#define IMG_HEIGHT       240
+#define IMG_PIXEL_SIZE   2
 
 /**
  * @brief MQTT连接状态回调
@@ -21,7 +22,7 @@ typedef void (*mqtt_conn_callback_t)(bool connected);
 
 /**
  * @brief 初始化MQTT客户端
- * @param broker_uri 代理服务器地址（例：mqtt://192.168.1.100:1883）
+ * @param broker_uri 代理服务器地址
  * @param client_id  客户端标识符
  * @param rx_callback 数据接收回调（NULL表示使用默认处理）
  */
@@ -45,8 +46,4 @@ int mqtt_publish(const char *topic, const void *data, size_t len, int qos);
  */
 esp_err_t mqtt_subscribe(const char *topic, int qos);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif //__MQTT_H__
+#endif //__MYMQTT_H__
