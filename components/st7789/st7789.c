@@ -143,6 +143,7 @@ void st7789_draw_image(const uint16_t *image_data) {
     const uint8_t *data_ptr = (const uint8_t *)image_data;
     size_t remain = ST7789_WIDTH * ST7789_HEIGHT * 2;
     
+    send_cmd(ST7789_CMD_RAMWR);
     while(remain > 0) { //  循环发送数据，每次发送不超过ST7789_MAX_TRANS_SIZE字节
         size_t send_size = (remain > ST7789_MAX_TRANS_SIZE) ? ST7789_MAX_TRANS_SIZE : remain;
         

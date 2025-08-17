@@ -4,15 +4,16 @@
 #include "mqtt_client.h"
 
 /* MQTT配置 */
-#define MQTT_URI       "mqtt://192.168.1.95:1883"
+#define MQTT_URI       "mqtt://192.168.10.249:1883"
 #define MQTT_CLIENT_ID "esp32s3_Client"
-#define MQTT_RX_BUFFER_SIZE      8192 // 接收缓冲区大小
-#define MQTT_RECONNECT_INTERVAL  10 // 重连间隔（秒）
+#define MQTT_RX_BUFFER_SIZE      40960      // 接收缓冲区大小
+#define MQTT_RECONNECT_INTERVAL  10        // 重连间隔（秒）
 #define MQTT_TOPIC       "6050_date"       // 发送6050数据主题
-#define IMG_TOPIC        "6818_image"
+#define IMG_TOPIC        "6818_image"      // 接收图像数据的主题
 #define IMG_WIDTH        240
 #define IMG_HEIGHT       240
 #define IMG_PIXEL_SIZE   2
+#define IMG_BUF_SIZE (IMG_WIDTH * IMG_HEIGHT * IMG_PIXEL_SIZE)
 
 /**
  * @brief MQTT连接状态回调
@@ -26,7 +27,7 @@ typedef void (*mqtt_conn_callback_t)(bool connected);
  * @param client_id  客户端标识符
  * @param rx_callback 数据接收回调（NULL表示使用默认处理）
  */
-void mqtt_comm_init(mqtt_conn_callback_t conn_cb);
+void mqtt_init(mqtt_conn_callback_t conn_cb);
 
 /**
  * @brief 发布数据到指定主题
@@ -40,7 +41,7 @@ int mqtt_publish(const char *topic, const void *data, size_t len, int qos);
 
 /**
  * @brief 订阅指定主题
- * @param topic 订阅主题（支持通配符）
+ * @param topic 订阅主题
  * @param qos   服务质量等级
  * @return 成功返回ESP_OK
  */
