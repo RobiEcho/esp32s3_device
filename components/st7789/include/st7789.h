@@ -16,6 +16,8 @@
 
 /* ST7789命令 */
 #define ST7789_CMD_SLEEP_OUT   0x11 // 退出睡眠模式
+#define ST7789_CMD_INVON       0x21 // 开启颜色反转
+#define ST7789_CMD_INVOFF      0x20 // 关闭颜色反转
 #define ST7789_CMD_COLMOD      0x3A // 设置颜色模式
 #define ST7789_CMD_MADCTL      0x36 // 设置内存访问方向
 #define ST7789_CMD_DISPLAY_ON  0x29 // 开启显示

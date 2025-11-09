@@ -4,7 +4,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 
-/* WiFi配置 */
+/* WiFi连接配置 */
 #ifndef WIFI_SSID
 #define WIFI_SSID      "80777"
 #endif
@@ -13,22 +13,19 @@
 #define WIFI_PASS      "be663398@"
 #endif
 
+// WiFi连接成功回调函数类型
 typedef void (*wifi_conn_callback_t)(void);
 
 /**
- * @brief WiFi事件处理函数
+ * @brief 初始化WiFi STA模式并开始连接
+ * @param callback 连接成功时的回调函数（可为NULL）
  */
-void wifi_event_handler(void *arg, esp_event_base_t event_base,int32_t event_id, void *event_data);
+void wifi_init_sta(wifi_conn_callback_t callback);
 
 /**
- * @brief  初始化WiFi连接模块
+ * @brief 查询WiFi连接状态
+ * @return true表示已连接，false表示未连接
  */
-void wifi_init(wifi_conn_callback_t callback);
-
-
-/**
- * @brief 初始化并启动 WiFi STA 模式
- */
-void wifi_init_sta(void);
+bool wifi_is_connected(void);
 
 #endif
