@@ -15,43 +15,43 @@ static void set_address_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
 void st7789_init(void) {
     // GPIO初始化（DC/RES引脚）
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << ST7789_DC_PIN) | (1ULL << ST7789_RES_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .intr_type = GPIO_INTR_DISABLE,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE
+        .pin_bit_mask = (1ULL << ST7789_DC_PIN) | (1ULL << ST7789_RES_PIN),  // 配置DC和RES两个引脚
+        .mode = GPIO_MODE_OUTPUT,          // 设置为输出模式
+        .intr_type = GPIO_INTR_DISABLE,    // 禁用GPIO中断
+        .pull_up_en = GPIO_PULLUP_DISABLE, // 禁用内部上拉电阻
+        .pull_down_en = GPIO_PULLDOWN_DISABLE  // 禁用内部下拉电阻
     };
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 
     // SPI总线配置
     spi_bus_config_t buscfg = {
-        .mosi_io_num = ST7789_MOSI_PIN,
-        .miso_io_num = -1,
-        .sclk_io_num = ST7789_SCLK_PIN,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = ST7789_MAX_TRANS_SIZE * 2
+        .mosi_io_num = ST7789_MOSI_PIN,           // 主机输出从机输入引脚（数据线）
+        .miso_io_num = -1,                        // 不使用MISO（显示屏只接收数据）
+        .sclk_io_num = ST7789_SCLK_PIN,           // SPI时钟引脚
+        .quadwp_io_num = -1,                      // 不使用四线SPI的WP引脚
+        .quadhd_io_num = -1,                      // 不使用四线SPI的HD引脚
+        .max_transfer_sz = ST7789_MAX_TRANS_SIZE * 2  // 最大传输字节数（每个像素2字节）
     };
 
     // SPI设备配置
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 40 * 1000 * 1000, // 40MHz时钟
-        .mode = 3,                          // SPI模式
-        .spics_io_num = -1,                 // 不使用CS引脚
-        .queue_size = 7,
-        .flags = SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_NO_DUMMY
+        .clock_speed_hz = 40 * 1000 * 1000,   // SPI时钟频率40MHz
+        .mode = 3,                            // SPI模式3（CPOL=1, CPHA=1）
+        .spics_io_num = -1,                   // 不使用CS引脚
+        .queue_size = 7,                      // SPI事务队列大小
+        .flags = SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_NO_DUMMY  // 半双工模式，无dummy位
     };
 
     // 初始化SPI总线及设备
     ESP_ERROR_CHECK(spi_bus_initialize(ST7789_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));// 初始化SPI总线
     ESP_ERROR_CHECK(spi_bus_add_device(ST7789_SPI_HOST, &devcfg, &hspi));// 初始化SPI设备
 
-    // 硬件复位序列
-    hardware_reset();
+    hardware_reset();   // 硬件复位序列
 
-    // 初始化命令序列
     send_cmd(ST7789_CMD_SLEEP_OUT); // 退出睡眠模式
     vTaskDelay(pdMS_TO_TICKS(120));
+
+    send_cmd(ST7789_CMD_INVON);  // 开启硬件颜色反转
 
     send_cmd(ST7789_CMD_COLMOD); // 设置颜色模式
     uint8_t mode = ST7789_PIXEL_FORMAT;
@@ -117,8 +117,13 @@ static void set_address_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
 // 清屏
 void st7789_fill_screen(uint16_t color) {
     uint8_t color_byte[2];
-    color_byte[0] = ~(color >> 8);
-    color_byte[1] = ~(color & 0xFF);
+
+    // 需要对RGB565数据取反才能显示正确的颜色(原因不明)
+    // color_byte[0] = ~(color >> 8);
+    // color_byte[1] = ~(color & 0xFF);
+    // 使用硬件颜色反转（ST7789_CMD_INVON），无需软件取反
+    color_byte[0] = (color >> 8);      // 高字节
+    color_byte[1] = (color & 0xFF);    // 低字节
 
     set_address_window(0, 0, ST7789_WIDTH-1, ST7789_HEIGHT-1);
 
@@ -147,12 +152,12 @@ void st7789_draw_image(const uint16_t *image_data) {
     while(remain > 0) { //  循环发送数据，每次发送不超过ST7789_MAX_TRANS_SIZE字节
         size_t send_size = (remain > ST7789_MAX_TRANS_SIZE) ? ST7789_MAX_TRANS_SIZE : remain;
         
-        // 处理颜色格式转换
+        // 处理字节序转换（ESP32为Little-Endian，SPI发送需要Big-Endian）
         uint8_t buffer[send_size];
         for(int i=0; i<send_size/2; i++) {
             uint16_t color = ((uint16_t*)data_ptr)[i];
-            buffer[i*2] = ~(color >> 8);   // 高位取反
-            buffer[i*2+1] = ~(color & 0xFF); // 低位取反
+            buffer[i*2] = (color >> 8);      // 高字节
+            buffer[i*2+1] = (color & 0xFF);  // 低字节
         }
         
         send_data(buffer, send_size);

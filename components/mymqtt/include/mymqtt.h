@@ -8,7 +8,7 @@
 #define MQTT_CLIENT_ID "esp32s3_Client"
 #define MQTT_RX_BUFFER_SIZE      40960      // 接收缓冲区大小
 #define MQTT_RECONNECT_INTERVAL  10        // 重连间隔（秒）
-#define MQTT_TOPIC       "6050_date"       // 发送6050数据主题
+#define DATA_TOPIC       "6050_date"       // 发送6050数据主题
 #define IMG_TOPIC        "6818_image"      // 接收图像数据的主题
 #define IMG_WIDTH        240
 #define IMG_HEIGHT       240
@@ -46,5 +46,11 @@ int mqtt_publish(const char *topic, const void *data, size_t len, int qos);
  * @return 成功返回ESP_OK
  */
 esp_err_t mqtt_subscribe(const char *topic, int qos);
+
+/**
+ * @brief 查询MQTT连接状态
+ * @return true表示已连接，false表示未连接
+ */
+bool mqtt_is_connected(void);
 
 #endif //__MYMQTT_H__

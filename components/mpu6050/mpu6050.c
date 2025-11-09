@@ -3,9 +3,10 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <arpa/inet.h>
 #include <math.h>
 
-static i2c_master_bus_handle_t bus_handle = NULL; // 定义I2C总线句柄和设备句柄
+static i2c_master_bus_handle_t bus_handle = NULL; // I2C总线句柄
 static i2c_master_dev_handle_t dev_handle = NULL; // I2C设备句柄
 
 static const char *TAG = "MPU6050";
@@ -34,13 +35,13 @@ void mpu6050_init(void)
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = MPU6050_I2C_ADDR,
-        .scl_speed_hz = MPU6050_CLK_SPEED_HZ,
+        .scl_speed_hz = MPU6050_CLK_SPEED,
     };
     
     // 添加主设备到总线
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle));
 
-    // 唤醒设备：写PWR_MGMT_1寄存器（0x6B），设置值为0
+    // 唤醒设备：写PWR_MGMT_1寄存器（0x6B），设置值为0x00
     uint8_t wakeup_cmd[] = {0x6B, 0x00};
     ESP_ERROR_CHECK(i2c_master_transmit(dev_handle, wakeup_cmd, sizeof(wakeup_cmd), -1));
     
@@ -57,13 +58,17 @@ void mpu6050_read_gyro(mpu6050_data_t *data)
         dev_handle,
         &reg_addr, 1,               // 发送寄存器地址与地址大小（字节）
         raw_data, sizeof(raw_data), // 接收数据
-        -1                          // 一直等待，直到操作完成
+        100                         // 100ms超时时间
     ));
+    uint16_t x_be, y_be, z_be;
 
-    // 组合高低字节数据（大端模式）
-    data->x = (raw_data[0] << 8) | raw_data[1];
-    data->y = (raw_data[2] << 8) | raw_data[3];
-    data->z = (raw_data[4] << 8) | raw_data[5];
+    memcpy(&x_be, &raw_data[0], 2);
+    memcpy(&y_be, &raw_data[2], 2);
+    memcpy(&z_be, &raw_data[4], 2);
+
+    data->x = (int16_t)ntohs(x_be);
+    data->y = (int16_t)ntohs(y_be);
+    data->z = (int16_t)ntohs(z_be);
 }
 
 void mpu6050_calibrate_gyro(mpu6050_data_t *bias, uint16_t samples) 
@@ -72,8 +77,6 @@ void mpu6050_calibrate_gyro(mpu6050_data_t *bias, uint16_t samples)
     bias->x = 0;
     bias->y = 0;
     bias->z = 0;
-
-    ESP_LOGI(TAG, "开始校准，采样次数：%d", samples);
     
     // 采集指定次数的样本
     for (uint16_t i = 0; i < samples; i++) {
@@ -81,30 +84,31 @@ void mpu6050_calibrate_gyro(mpu6050_data_t *bias, uint16_t samples)
         bias->x += temp.x;
         bias->y += temp.y;
         bias->z += temp.z;
-        vTaskDelay(10 / portTICK_PERIOD_MS);  // 10ms间隔
+        vTaskDelay(pdMS_TO_TICKS(10));  // 10ms间隔
     }
 
-    // 计算平均值
     bias->x /= samples;
     bias->y /= samples;
     bias->z /= samples;
     
-    // ESP_LOGI(TAG, "校准完成 - X:%d Y:%d Z:%d", bias->x, bias->y, bias->z);
-    ESP_LOGI(TAG, "校准完成");
+    ESP_LOGI(TAG, "校准陀螺仪零偏完成");
 }
 
 float mpu6050_calculate_angle(float prev_angle, float gyro_rate, float dt) 
 {
     float new_angle = prev_angle + ((gyro_rate / GYRO_SCALE) * dt);
-    // 当积分值小于2时，不计入此次积分(防抖动)
+    
+    // 防抖动
     if (fabsf(new_angle - prev_angle) < 2) {
         return prev_angle;
     }
+    
     // 输出的结果限定在0~180，防止角度越界
     if (new_angle < 0) {
         return 0;
     } else if (new_angle > 180) {
         return 180;
     }
+    
     return new_angle;
 }

@@ -4,16 +4,16 @@
 #include "driver/i2c_master.h"
 
 /* MPU6050配置 */
-#define MPU6050_I2C_ADDR        0x68    // 设备I2C地址
-#define MPU6050_I2C_PORT        I2C_NUM_0  // 使用的I2C0端口
-#define MPU6050_SDA_PIN         1       // I2C数据线引脚
-#define MPU6050_SCL_PIN         0       // I2C时钟线引脚
-#define MPU6050_CLK_SPEED_HZ    100000  // I2C通信频率(100kHz)
-#define GYRO_SCALE              131.0f  // ±250dps灵敏度
+#define MPU6050_I2C_ADDR        0x68       // I2C_ADDR
+#define MPU6050_I2C_PORT        I2C_NUM_0  // I2C_PORT
+#define MPU6050_SDA_PIN         1          // I2C_SDA
+#define MPU6050_SCL_PIN         0          // I2C_SCL
+#define MPU6050_CLK_SPEED       100000     // I2C通信频率(100kHz)
+#define GYRO_SCALE              131.0f     // ±250dps灵敏度
 
 /**
  * @brief 陀螺仪原始数据结构体
- * @note 各轴数据为原始ADC值，需根据量程转换
+ * @note 各轴数据为原始ADC值，需根据灵敏度转换
  */
 typedef struct {
     int16_t x;  // X轴角速度原始值
@@ -36,7 +36,7 @@ void mpu6050_read_gyro(mpu6050_data_t *data);
 /**
  * @brief 校准陀螺仪零偏
  * @param bias 存储校准结果的结构体指针
- * @param samples 采样次数（建议100次以上）
+ * @param samples 采样次数
  */
 void mpu6050_calibrate_gyro(mpu6050_data_t *bias, uint16_t samples);
 
