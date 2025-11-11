@@ -3,7 +3,6 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "esp_log.h"
-#include "esp_task_wdt.h"
 #include "wifi_config.h"
 #include "mpu6050.h"
 #include "esp_timer.h"
@@ -47,7 +46,7 @@ static void mqtt_send_data(float angles[]) {
     
     char json_buffer[100];
     int len = snprintf(json_buffer, sizeof(json_buffer), 
-                      "{\"angle_y\": %.2f, \"angle_z\": %.2f}",
+                      "{\"angle_y\": %.1f, \"angle_z\": %.1f}",
                       angles[0], angles[1]);
     if (len <= 0 || len >= sizeof(json_buffer)) {
         ESP_LOGE(TAG, "JSON字符串生成失败或缓冲区不足");
@@ -61,29 +60,23 @@ static void sensor_task(void *arg) {
     float angles[2] = {90.0f, 90.0f};
     int64_t last_time = esp_timer_get_time();
     
-    // 添加到看门狗监控
-    esp_task_wdt_add(NULL);
-    
     ESP_LOGI(TAG, "传感器任务启动");
     
     while (1) {
-        // 喂狗
-        esp_task_wdt_reset();
-        
         // 读取传感器数据
         mpu6050_data_t raw;
         mpu6050_read_gyro(&raw);
         
-        // 计算角度变化
+        // 计算角度
         float dt = (esp_timer_get_time() - last_time) / 1e6;
         angles[0] = mpu6050_calculate_angle(angles[0], (raw.y - gyro_bias.y), dt);
         angles[1] = mpu6050_calculate_angle(angles[1], (raw.z - gyro_bias.z), dt);
         last_time = esp_timer_get_time();
-        
+        // printf("angle_y: %.2f, angle_z: %.2f\n", angles[0], angles[1]);
         // 发布数据到MQTT
         mqtt_send_data(angles);
         
-        vTaskDelay(pdMS_TO_TICKS(100));  // 延时100ms（0.1s）
+        vTaskDelay(pdMS_TO_TICKS(50));  // 延时50ms
     }
 }
 
@@ -91,19 +84,10 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "开始初始化");
     
-    // 初始化看门狗
-    esp_task_wdt_config_t wdt_config = {
-        .timeout_ms = 10000,   // 超时10秒
-        .idle_core_mask = 0,   // 空闲核心掩码
-        .trigger_panic = true  // 触发紧急情况
-    };
-    ESP_ERROR_CHECK(esp_task_wdt_init(&wdt_config));
-    ESP_LOGI(TAG, "看门狗已启动");
-    
     // 创建事件组
     init_event_group = xEventGroupCreate();
     
-    // 初始化显示屏（独立于网络，可先初始化）
+    // 初始化显示屏
     st7789_init();
     st7789_fill_screen(0xFFFF);  // 清屏为白色
     
@@ -130,7 +114,7 @@ void app_main(void)
     // 初始化 MQTT
     mqtt_init(mqtt_connected_callback);
     
-    // 初始化传感器
+    // 初始化传感器（在创建任务前初始化）
     mpu6050_init();
     mpu6050_calibrate_gyro(&gyro_bias, 100);  // 校准陀螺仪偏移
     

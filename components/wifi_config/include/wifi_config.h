@@ -5,13 +5,8 @@
 #include "esp_event.h"
 
 /* WiFi连接配置 */
-#ifndef WIFI_SSID
-#define WIFI_SSID      "80777"
-#endif
-
-#ifndef WIFI_PASS
-#define WIFI_PASS      "be663398@"
-#endif
+#define WIFI_SSID      "DragonG"
+#define WIFI_PASS      "lrt13729011089"
 
 // WiFi连接成功回调函数类型
 typedef void (*wifi_conn_callback_t)(void);

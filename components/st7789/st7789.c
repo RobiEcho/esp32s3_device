@@ -118,9 +118,6 @@ static void set_address_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
 void st7789_fill_screen(uint16_t color) {
     uint8_t color_byte[2];
 
-    // 需要对RGB565数据取反才能显示正确的颜色(原因不明)
-    // color_byte[0] = ~(color >> 8);
-    // color_byte[1] = ~(color & 0xFF);
     // 使用硬件颜色反转（ST7789_CMD_INVON），无需软件取反
     color_byte[0] = (color >> 8);      // 高字节
     color_byte[1] = (color & 0xFF);    // 低字节

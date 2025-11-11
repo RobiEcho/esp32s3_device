@@ -4,7 +4,7 @@
 #include "mqtt_client.h"
 
 /* MQTT配置 */
-#define MQTT_URI       "mqtt://192.168.10.249:1883"
+#define MQTT_URI       "mqtt://192.168.5.46:1883"
 #define MQTT_CLIENT_ID "esp32s3_Client"
 #define MQTT_RX_BUFFER_SIZE      40960      // 接收缓冲区大小
 #define MQTT_RECONNECT_INTERVAL  10        // 重连间隔（秒）
