@@ -106,7 +106,7 @@ static void event_handler(void *args, esp_event_base_t base, int32_t event_id, v
             // 判断是否收满一帧，显示图像
             if (img_buf_len == IMG_BUF_SIZE) {
                 ESP_LOGI(TAG, "收到完整图像，总长度: %d 字节", img_buf_len);
-                st7789_display_raw(img_buf, IMG_BUF_SIZE);
+                // st7789_display_raw(img_buf, IMG_BUF_SIZE);
                 img_buf_len = 0; // 重置缓冲区
             }
         }

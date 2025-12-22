@@ -20,7 +20,6 @@ typedef struct {
     uint16_t *buf[ST7789_DMA_BUF_COUNT];   // [0]=PING, [1]=PONG
     size_t    buf_size;                    // 单个缓冲区可用像素数
     uint8_t   cpu_idx;                     // CPU 正在写的 buffer index
-    uint8_t   dma_idx;                     // DMA 正在读的 buffer index
     volatile st7789_dma_buf_status_t status[ST7789_DMA_BUF_COUNT];
 } st7789_dma_pingpong_t;
 
@@ -43,5 +42,14 @@ void st7789_fill_screen(uint16_t color);
  * @param image_data 图像数据指针
  */
 void st7789_draw_image(const uint16_t *image_data);
+
+/**
+ * @brief 在指定区域绘制 RGB565 图像（用于 LVGL 刷新）
+ * @param x1, y1 左上角坐标（包含）
+ * @param x2, y2 右下角坐标（包含）
+ * @param color_map 像素数据指针，大小为 (x2-x1+1)*(y2-y1+1)
+ * @note 接受 int32_t 类型坐标，兼容 LVGL 的 lv_coord_t
+ */
+void st7789_draw_area(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint16_t *color_map);
 
 #endif //__ST7789_DRIVER_H__

@@ -69,12 +69,12 @@ esp_err_t st7789_init(void)
         .sclk_io_num = ST7789_SPI_SCLK_PIN,           // SPI时钟引脚
         .quadwp_io_num = -1,                          // 不使用四线SPI的WP引脚
         .quadhd_io_num = -1,                          // 不使用四线SPI的HD引脚
-        .max_transfer_sz = ST7789_SPI_MAX_TRANS_SIZE * 2  // 最大传输字节数（每个像素2字节）
+        .max_transfer_sz = ST7789_SPI_MAX_TRANS_SIZE  // 最大传输字节数（单位：字节）
     };
 
     // SPI设备配置
     spi_device_interface_config_t dev_cfg = {
-        .clock_speed_hz = ST7789_SPI_CLOCK_HZ,   // SPI时钟频率40MHz
+        .clock_speed_hz = ST7789_SPI_CLOCK_HZ,   // SPI时钟频率
         .mode = ST7789_SPI_MODE,                 // SPI模式:3（CPOL=1, CPHA=1）
         .spics_io_num = -1,                      // 不使用CS引脚
         .queue_size = ST7789_SPI_QUEUE_SIZE,     // SPI事务队列大小
@@ -116,11 +116,12 @@ esp_err_t st7789_init(void)
 
 static void _st7789_dma_pingpong_init(void)
 {
-    s_dma_pp.buf_size = ST7789_MAX_TRANS_SIZE / 2;
+    /* 以“像素数”为单位设置单个缓冲区大小，RGB565 = 2 字节/像素 */
+    s_dma_pp.buf_size = ST7789_DMA_MAX_PIXELS;
 
     for (int i = 0; i < ST7789_DMA_BUF_COUNT; i++) {
         s_dma_pp.buf[i] = heap_caps_malloc(
-            ST7789_MAX_TRANS_SIZE,
+            s_dma_pp.buf_size * sizeof(uint16_t),
             MALLOC_CAP_DMA
         );
         assert(s_dma_pp.buf[i] != NULL);
@@ -130,7 +131,6 @@ static void _st7789_dma_pingpong_init(void)
     }
 
     s_dma_pp.cpu_idx = 0;
-    s_dma_pp.dma_idx = 0;
 }
 
 // 发送命令
@@ -280,4 +280,58 @@ void st7789_draw_image(const uint16_t *image_data)
     }
 
     s_waiting_task = NULL;
+}
+
+// 在指定区域绘制 RGB565 图像（适配 LVGL 刷新接口）
+void st7789_draw_area(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint16_t *color_map)
+{
+    if (!s_inited) {
+        return;
+    }
+
+    // 处理负数坐标（LVGL 可能传递负数）
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    if (x2 < 0) x2 = 0;
+    if (y2 < 0) y2 = 0;
+
+    // 检查坐标顺序
+    if (x2 < x1 || y2 < y1) {
+        return;
+    }
+
+    // 完全越界则直接返回
+    if (x1 >= (int32_t)ST7789_WIDTH || y1 >= (int32_t)ST7789_HEIGHT) {
+        return;
+    }
+
+    // 裁剪到屏幕边界
+    if (x2 >= (int32_t)ST7789_WIDTH) {
+        x2 = ST7789_WIDTH - 1;
+    }
+    if (y2 >= (int32_t)ST7789_HEIGHT) {
+        y2 = ST7789_HEIGHT - 1;
+    }
+
+    _st7789_set_window((uint16_t)x1, (uint16_t)y1, (uint16_t)x2, (uint16_t)y2);
+    _st7789_send_cmd(ST7789_CMD_RAMWR);
+
+    uint32_t w = (uint32_t)(x2 - x1 + 1);
+    uint32_t h = (uint32_t)(y2 - y1 + 1);
+    uint32_t total_pixels = w * h;
+    uint32_t offset = 0;
+
+    while (offset < total_pixels) {
+        uint32_t pixels_left = total_pixels - offset;
+
+        // 每次发送不超过 ST7789_SPI_MAX_TRANS_SIZE 字节
+        uint32_t max_bytes  = ST7789_SPI_MAX_TRANS_SIZE;
+        uint32_t max_pixels = max_bytes / sizeof(uint16_t);
+
+        uint32_t copy_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
+        uint32_t copy_bytes = copy_pixels * sizeof(uint16_t);
+
+        _st7789_send_data((const uint8_t *)(color_map + offset), copy_bytes);
+        offset += copy_pixels;
+    }
 }

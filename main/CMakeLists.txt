@@ -1,5 +1,16 @@
 idf_component_register(
-    SRCS "app_main.c"
-    PRIV_REQUIRES spi_flash esp_timer wifi_config mpu6050 st7789 mymqtt
-    INCLUDE_DIRS ""
+    SRCS
+        "main.c"
+        "lvgl_port/lvgl_port.c"
+    PRIV_REQUIRES
+        spi_flash
+        esp_timer
+        wifi
+        mpu6050
+        st7789
+        mymqtt
+        lvgl
+    INCLUDE_DIRS
+        "."
+        "lvgl_port"
 )

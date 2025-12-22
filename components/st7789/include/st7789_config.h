@@ -11,15 +11,16 @@
 #define ST7789_DC_PIN                7            // 数据/命令控制引脚
 
 #define ST7789_SPI_MODE              3            // ST7789 requires SPI mode 0
-#define ST7789_SPI_CLOCK_HZ          (40 * 1000 * 1000)  // SPI时钟频率
+#define ST7789_SPI_CLOCK_HZ          (20 * 1000 * 1000)  // SPI时钟频率
 #define ST7789_SPI_QUEUE_SIZE        7            // SPI事务队列
-#define ST7789_SPI_MAX_TRANS_SIZE    4096         // SPI最大传输字节数
+#define ST7789_SPI_MAX_TRANS_SIZE    4096         // SPI最大传输字节数（单位：字节）
 
 #define ST7789_WIDTH                 240          // 分辨率
 #define ST7789_HEIGHT                240
 
 /* ============== ST7789 DMA configuration ============== */
-#define ST7789_MAX_TRANS_SIZE       4096         // 每次DMA传输的最大字节数
+/* 每次DMA传输的最大像素数（RGB565 = 2字节/像素） */
+#define ST7789_DMA_MAX_PIXELS      (ST7789_SPI_MAX_TRANS_SIZE / 2)
 
 /* ================= ST7789 Command Set ================= */
 
