@@ -4,16 +4,16 @@
 /* ================= ST7789 Hardware Config ================= */
 
 #define ST7789_SPI_HOST              SPI3_HOST    // SPI3
-#define ST7789_SPI_MOSI_PIN          11           // SPI数据线
-#define ST7789_SPI_SCLK_PIN          12           // SPI时钟线
+#define ST7789_SPI_MOSI_PIN          47           // SPI数据线
+#define ST7789_SPI_SCLK_PIN          21           // SPI时钟线
 
-#define ST7789_RES_PIN               6            // 复位引脚
-#define ST7789_DC_PIN                7            // 数据/命令控制引脚
+#define ST7789_RES_PIN               45            // 复位引脚
+#define ST7789_DC_PIN                40            // 数据/命令控制引脚
 
 #define ST7789_SPI_MODE              3            // ST7789 requires SPI mode 0
 #define ST7789_SPI_CLOCK_HZ          (20 * 1000 * 1000)  // SPI时钟频率
 #define ST7789_SPI_QUEUE_SIZE        7            // SPI事务队列
-#define ST7789_SPI_MAX_TRANS_SIZE    4096         // SPI最大传输字节数（单位：字节）
+#define ST7789_SPI_MAX_TRANS_SIZE    (240 * 240 * 2 / 10)  // 一帧的 1/10，RGB565 共 11520 字节
 
 #define ST7789_WIDTH                 240          // 分辨率
 #define ST7789_HEIGHT                240
@@ -21,6 +21,7 @@
 /* ============== ST7789 DMA configuration ============== */
 /* 每次DMA传输的最大像素数（RGB565 = 2字节/像素） */
 #define ST7789_DMA_MAX_PIXELS      (ST7789_SPI_MAX_TRANS_SIZE / 2)
+#define ST7789_PINGPONG_BUFFER_ENABLE  0
 
 /* ================= ST7789 Command Set ================= */
 
@@ -36,11 +37,13 @@
 #define ST7789_CMD_RASET             0x2B       // 行地址设置
 #define ST7789_CMD_RAMWR             0x2C       // 内存写入 
 
-#define ST7789_DMA_BUF_COUNT  2
+#if ST7789_PINGPONG_BUFFER_ENABLE
+#define ST7789_PINGPONG_BUF_COUNT  2
 
 enum {
-    DMA_BUF_PING = 0,
-    DMA_BUF_PONG
+    PINGPONG_BUF_PING = 0,
+    PINGPONG_BUF_PONG
 };
+#endif
 
 #endif /* ST7789_DRIVER_CONFIG_H */
