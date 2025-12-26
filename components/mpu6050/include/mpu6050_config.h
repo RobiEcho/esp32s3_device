@@ -8,7 +8,11 @@
 #define MPU6050_SCL_PIN         (0)           // I2C_SCL
 #define MPU6050_I2C_CLK_SPEED   400000U       // I2C通信频率(400kHz)
 #define MPU6050_I2C_GLITCH_IGNORE_CNT   (7)   // I2C误差忽略计数
+
+/* ================= MPU6050 Sensor Config =================== */
 #define MPU6050_GYRO_LSB_PER_DPS   131.0f     // 陀螺仪灵敏度(LSB/°/s)
+#define MPU6050_ACCEL_LSB_PER_G    16384.0f   // 加速度计灵敏度(LSB/g)，±2g量程
+#define MPU6050_GRAVITY_MS2        9.80665f   // 标准重力加速度(m/s²)
 #define MPU6050_DATA_BYTES(x)   ((x) * 2)     // 传感器数据字节数
 
 /* ================= MPU6050 Register Addresses ============== */
@@ -26,9 +30,8 @@
 #define MPU6050_REG_GYRO_ZOUT_H       0x47    // 陀螺仪Z轴高字节寄存器
 #define MPU6050_REG_GYRO_ZOUT_L       0x48    // 陀螺仪Z轴低字节寄存器
 
-/* ================= PWR_MGMT_1 Register ===================== */
+/* ================= MPU6050 Register Bit ===================== */
 #define MPU6050_PWR_MGMT_1_SLEEP_BIT  (1 << 6)
-
 #define MPU6050_PWR_MGMT_1_WAKEUP     0x00
 #define MPU6050_PWR_MGMT_1_SLEEP      MPU6050_PWR_MGMT_1_SLEEP_BIT
 

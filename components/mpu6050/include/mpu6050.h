@@ -1,10 +1,10 @@
 #ifndef __MPU6050_DRIVER_H__
 #define __MPU6050_DRIVER_H__
 
-#include "driver/i2c_master.h"
 #include "mpu6050_config.h"
 #include "esp_err.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct {
     int16_t accel_x;   // 加速度 X

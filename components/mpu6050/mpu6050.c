@@ -1,4 +1,5 @@
 #include "mpu6050.h"
+#include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include <math.h>
 
