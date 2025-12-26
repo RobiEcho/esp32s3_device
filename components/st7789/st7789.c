@@ -66,7 +66,6 @@ static void _st7789_send_data_queue(const uint8_t *data, size_t len, void *user_
         .length = len * 8,
         .tx_buffer = data,  
         .user = user_data
-    
     };
 
     spi_transaction_t *rtrans = NULL;
@@ -128,7 +127,10 @@ static esp_err_t _st7789_spi_bus_init(void)
         .max_transfer_sz = ST7789_SPI_MAX_TRANS_SIZE  // 最大传输字节数（单位：字节）
     };
 
-    ESP_ERROR_CHECK(spi_bus_initialize(ST7789_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO));
+    esp_err_t ret = spi_bus_initialize(ST7789_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     // SPI设备配置
     spi_device_interface_config_t dev_cfg = {
@@ -143,7 +145,10 @@ static esp_err_t _st7789_spi_bus_init(void)
 #endif
     };
 
-    ESP_ERROR_CHECK(spi_bus_add_device(ST7789_SPI_HOST, &dev_cfg, &s_hspi));
+    ret = spi_bus_add_device(ST7789_SPI_HOST, &dev_cfg, &s_hspi);
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     return ESP_OK;
 }
@@ -156,10 +161,10 @@ bool st7789_is_inited(void)
 static esp_err_t _st7789_config_init(void)
 {
 #if ST7789_PINGPONG_BUFFER_ENABLE
-    _st7789_pingpong_init();            // 初始化缓冲区
+    _st7789_pingpong_init();                     // 初始化PINGPONG缓冲区
 #endif
     
-    _st7789_hardware_reset();               // 硬件复位序列
+    _st7789_hardware_reset();                    // 硬件复位序列
 
     _st7789_send_cmd(ST7789_CMD_SLEEP_OUT); // 退出睡眠模式
     vTaskDelay(pdMS_TO_TICKS(120));
@@ -184,7 +189,11 @@ esp_err_t st7789_init(void)
     if (s_inited) {
         return ESP_OK;
     }
-    ESP_ERROR_CHECK(_st7789_spi_bus_init());
+
+    esp_err_t ret = _st7789_spi_bus_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     // GPIO初始化（DC/RES引脚）
     gpio_config_t io_cfg = {
@@ -194,9 +203,15 @@ esp_err_t st7789_init(void)
         .pull_up_en = GPIO_PULLUP_DISABLE,     // 禁用内部上拉电阻
         .pull_down_en = GPIO_PULLDOWN_DISABLE  // 禁用内部下拉电阻
     };
-    ESP_ERROR_CHECK(gpio_config(&io_cfg));
+    ret = gpio_config(&io_cfg);
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
-    ESP_ERROR_CHECK(_st7789_config_init());
+    ret = _st7789_config_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     s_inited = true;
     return ESP_OK;

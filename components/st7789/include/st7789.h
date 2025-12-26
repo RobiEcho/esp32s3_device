@@ -23,12 +23,7 @@ typedef struct {
 } st7789_pingpong_t;
 #endif
 
-/**
- * @brief  初始化ST7789显示屏
- * @note  包含GPIO、SPI总线和设备初始化
- */
 esp_err_t st7789_init(void);
-
 bool st7789_is_inited(void);
 
 /**

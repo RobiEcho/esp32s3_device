@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include "st7789.h"
 #include "esp_log.h"
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 
 /*********************
@@ -140,8 +141,8 @@ void lv_port_disp_init(void)
     /* 设置显示缓冲区（这里使用示例 2 的双缓冲区） */
     disp_drv.draw_buf = &draw_buf_dsc;
 
-    disp_drv.user_data = NULL;
-    disp_drv.full_refresh = 1;                          /* 设置为完全刷新 */
+    // disp_drv.user_data = NULL;
+    // disp_drv.full_refresh = 1;                          /* 设置为完全刷新 */
 
     /* 若使用示例 3（全屏双缓冲），需取消下面这行注释 */
     //disp_drv.full_refresh = 1;
@@ -163,7 +164,7 @@ void lv_port_disp_init(void)
 static void disp_init(void)
 {
     /* 在此处添加你的初始化代码 */
-    st7789_init();
+    ESP_ERROR_CHECK(st7789_init());
 }
 
 /* 全局标志：控制是否允许刷新屏幕 */

@@ -3,7 +3,7 @@ idf_component_register(
         "main.c"
         "lvgl_port/lv_port_disp.c"
         "lvgl_port/lvgl_task.c"
-        "lvgl_port/lvgl_ui_config.c"
+        "lvgl_port/lvgl_ui.c"
     PRIV_REQUIRES
         spi_flash
         esp_timer
