@@ -3,10 +3,6 @@
 
 #include "esp_err.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* LVGL任务配置 */
 #define LVGL_TASK_STACK_SIZE    (8192)
 #define LVGL_TASK_PRIORITY      (5)
@@ -17,9 +13,5 @@ extern "C" {
  * @return ESP_OK 成功，其他值表示失败
  */
 esp_err_t lvgl_task_init(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // __LVGL_TASK_H__

@@ -13,10 +13,14 @@
 #define ST7789_SPI_MODE              3            // ST7789 requires SPI mode 0
 #define ST7789_SPI_CLOCK_HZ          (20 * 1000 * 1000)  // SPI时钟频率
 #define ST7789_SPI_QUEUE_SIZE        7            // SPI事务队列
-#define ST7789_SPI_MAX_TRANS_SIZE    (240 * 240 * 2 / 10)  // 一帧的 1/10，RGB565 共 11520 字节
 
 #define ST7789_WIDTH                 240          // 分辨率
 #define ST7789_HEIGHT                240
+
+/* ============== ST7789 Pixel Format ============== */
+#define ST7789_PIXEL_BPP             2            // RGB565: 2字节/像素
+#define ST7789_FRAME_SIZE_BYTES      (ST7789_WIDTH * ST7789_HEIGHT * ST7789_PIXEL_BPP)  // 一帧完整大小（字节）
+#define ST7789_SPI_MAX_TRANS_SIZE    (ST7789_FRAME_SIZE_BYTES / 10)  // 一帧的 1/10，用于分块传输
 
 /* ============== ST7789 DMA configuration ============== */
 /* 每次DMA传输的最大像素数（RGB565 = 2字节/像素） */
