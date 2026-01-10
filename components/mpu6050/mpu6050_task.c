@@ -1,75 +1,86 @@
+#include "mpu6050_task.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <stdio.h>
-
-#include "mpu6050_task.h"
 
 static const char *TAG = "mpu6050_task";
+static bool s_task_inited = false;
+QueueHandle_t g_mpu6050_queue = NULL;
 
-static QueueHandle_t s_mpu6050_queue = NULL;
-
-static portTASK_FUNCTION(_mpu6050_producer_task, arg)
+static void _mpu6050_producer_task(void *arg)
 {
-    mpu6050_data_t data;
+    (void)arg;
 
+    mpu6050_raw_data_t raw_data;
+    const uint64_t read_interval = 1000000;  // 1000ms
+    uint64_t last_read_time = esp_timer_get_time();
+    
     while (1) {
-        if (mpu6050_read_data(&data) != ESP_OK) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
+        uint64_t current_time = esp_timer_get_time();
+        if (current_time - last_read_time >= read_interval) {
+            esp_err_t err = mpu6050_read_raw_data(&raw_data);
+            if (err != ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+            last_read_time = current_time;
+
+            xQueueSend(g_mpu6050_queue, &raw_data, portMAX_DELAY);
         }
 
-        if (xQueueSend(s_mpu6050_queue, &data, 0) != pdPASS) {
-            ESP_LOGW(TAG, "mpu6050 data queue full, drop data");
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
-static portTASK_FUNCTION(_mpu6050_consumer_task, arg)
+static void _mpu6050_consumer_task(void *arg)
 {
-    mpu6050_data_t data;
+    (void)arg;
+
+    mpu6050_raw_data_t raw_data;
+    mpu6050_data_t converted_data;
 
     while (1) {
-        if (xQueueReceive(s_mpu6050_queue, &data, portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(g_mpu6050_queue, &raw_data, portMAX_DELAY) == pdTRUE) {
+            esp_err_t err = mpu6050_convert_data(&raw_data, &converted_data);
+            if (err != ESP_OK) {
+                continue;
+            }
 
-            float gyro_x_dps = data.gyro_x / MPU6050_GYRO_LSB_PER_DPS;
-            float gyro_y_dps = data.gyro_y / MPU6050_GYRO_LSB_PER_DPS;
-            float gyro_z_dps = data.gyro_z / MPU6050_GYRO_LSB_PER_DPS;
-
-            float accel_x_g = data.accel_x / MPU6050_ACCEL_LSB_PER_G;
-            float accel_y_g = data.accel_y / MPU6050_ACCEL_LSB_PER_G;
-            float accel_z_g = data.accel_z / MPU6050_ACCEL_LSB_PER_G;
-
-            float accel_x_ms2 = accel_x_g * MPU6050_GRAVITY_MS2;
-            float accel_y_ms2 = accel_y_g * MPU6050_GRAVITY_MS2;
-            float accel_z_ms2 = accel_z_g * MPU6050_GRAVITY_MS2;
-
-            ESP_LOGI(TAG,
-                "Gyro[dps]  X: %.2f  Y: %.2f  Z: %.2f | "
-                "Accel[m/s2] X: %.2f  Y: %.2f  Z: %.2f",
-                gyro_x_dps, gyro_y_dps, gyro_z_dps,
-                accel_x_ms2, accel_y_ms2, accel_z_ms2
-            );
+            ESP_LOGI(TAG, "陀螺仪[dps]  X: %.2f  Y: %.2f  Z: %.2f",
+                     converted_data.gyro_x, converted_data.gyro_y, converted_data.gyro_z);
+            ESP_LOGI(TAG, "加速度[m/s²] X: %.2f  Y: %.2f  Z: %.2f",
+                     converted_data.accel_x, converted_data.accel_y, converted_data.accel_z);
         }
     }
 }
 
 esp_err_t mpu6050_task_init(void)
 {
-    if (mpu6050_init() != ESP_OK) {
-        ESP_LOGE(TAG, "mpu6050 init failed");
-        return ESP_ERR_INVALID_STATE;
+    // 初始化 MPU6050 驱动
+    esp_err_t err = mpu6050_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MPU6050 初始化失败");
+        return err;
     }
 
-    s_mpu6050_queue = xQueueCreate(MPU6050_QUEUE_LEN, sizeof(mpu6050_data_t));
-    if (s_mpu6050_queue == NULL) {
-        ESP_LOGE(TAG, "failed to create mpu6050 data_queue");
+    // 校准陀螺仪（静止状态下进行）
+    ESP_LOGI(TAG, "请保持设备静止，正在校准...");
+    err = mpu6050_calibrate_gyro(NULL, 100);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "陀螺仪校准失败");
+        return err;
+    }
+
+    // 创建数据队列
+    g_mpu6050_queue = xQueueCreate(MPU6050_QUEUE_LEN, sizeof(mpu6050_raw_data_t));
+    if (g_mpu6050_queue == NULL) {
+        ESP_LOGE(TAG, "创建队列失败");
         return ESP_ERR_NO_MEM;
     }
 
-    xTaskCreate(
+    // 创建生产者任务
+    BaseType_t ret = xTaskCreate(
         _mpu6050_producer_task,
         "mpu6050_producer",
         MPU6050_TASK_STACK_SIZE,
@@ -77,21 +88,26 @@ esp_err_t mpu6050_task_init(void)
         MPU6050_PRODUCER_TASK_PRIORITY,
         NULL
     );
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "创建生产者任务失败");
+        return ESP_FAIL;
+    }
 
-    xTaskCreate(
+    // 创建消费者任务
+    ret = xTaskCreate(
         _mpu6050_consumer_task,
         "mpu6050_consumer",
         MPU6050_TASK_STACK_SIZE,
         NULL,
-        MPU6050_PRODUCER_TASK_PRIORITY,
+        MPU6050_CONSUMER_TASK_PRIORITY,
         NULL
     );
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "创建消费者任务失败");
+        return ESP_FAIL;
+    }
 
-    ESP_LOGI(TAG, "tasks started");
+    s_task_inited = true;
+    ESP_LOGI(TAG, "任务初始化完成");
     return ESP_OK;
-}
-
-QueueHandle_t mpu6050_task_get_queue(void)
-{
-    return s_mpu6050_queue;
 }

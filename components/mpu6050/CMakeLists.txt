@@ -1,8 +1,7 @@
 idf_component_register(
     SRCS "mpu6050_task.c" "mpu6050.c"
     INCLUDE_DIRS "include"
-    REQUIRES driver
+    REQUIRES driver esp_timer
 )
 
-# 链接数学库
 target_link_libraries(${COMPONENT_LIB} m)
