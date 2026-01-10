@@ -5,36 +5,84 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
-#include "esp_attr.h"
 #include <string.h>
 
+static const char *TAG = "st7789";
+
 static spi_device_handle_t s_hspi = NULL;
-#if ST7789_PINGPONG_BUFFER_ENABLE
-static st7789_pingpong_t s_pingpong;
-static spi_transaction_t s_pingpong_trans[ST7789_PINGPONG_BUF_COUNT];
-static TaskHandle_t s_waiting_task = NULL;
-#endif
 static bool s_inited = false;
 
 #if ST7789_PINGPONG_BUFFER_ENABLE
+#include "esp_attr.h"
+
+static st7789_pingpong_t s_pingpong;
+static spi_transaction_t s_trans[ST7789_PINGPONG_BUF_COUNT];  // 预分配事务结构
+
 static void _st7789_pingpong_init(void)
 {
-    s_pingpong.buf_size = ST7789_DMA_MAX_PIXELS;
+    s_pingpong.buf_size = ST7789_PINGPONG_BUF_BYTES / sizeof(uint16_t);
 
     for (int i = 0; i < ST7789_PINGPONG_BUF_COUNT; i++) {
 #if defined(CONFIG_GRAPHICS_USE_PSRAM)
-        s_pingpong.buf[i] = heap_caps_malloc(s_pingpong.buf_size * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        s_pingpong.buf[i] = heap_caps_malloc(ST7789_PINGPONG_BUF_BYTES, MALLOC_CAP_SPIRAM);
 #else
-        s_pingpong.buf[i] = heap_caps_malloc(s_pingpong.buf_size * sizeof(uint16_t), MALLOC_CAP_DMA);
+        s_pingpong.buf[i] = heap_caps_malloc(ST7789_PINGPONG_BUF_BYTES, MALLOC_CAP_DMA);
 #endif
         if (s_pingpong.buf[i] == NULL) {
-            ESP_LOGE("ST7789", "pingpong buffer malloc failed");
+            ESP_LOGE(TAG, "Ping-Pong 缓冲区分配失败");
             return;
         }
         s_pingpong.status[i] = PINGPONG_BUF_IDLE;
-        memset(&s_pingpong_trans[i], 0, sizeof(s_pingpong_trans[i]));
+        memset(&s_trans[i], 0, sizeof(spi_transaction_t));
     }
-    s_pingpong.cpu_idx = 0;
+}
+
+// DMA 传输完成回调（ISR 上下文）
+static void IRAM_ATTR _st7789_dma_done_cb(spi_transaction_t *trans)
+{
+    uint8_t idx = (uint8_t)(uintptr_t)trans->user;
+    s_pingpong.status[idx] = PINGPONG_BUF_IDLE;
+}
+
+// 获取空闲缓冲区索引，如果没有则等待
+static int _st7789_get_idle_buf(void)
+{
+    spi_transaction_t *rtrans;
+    
+    while (1) {
+        // 遍历查找空闲缓冲区
+        for (int i = 0; i < ST7789_PINGPONG_BUF_COUNT; i++) {
+            if (s_pingpong.status[i] == PINGPONG_BUF_IDLE) {
+                return i;
+            }
+        }
+        // 没有空闲的，等待 DMA 完成
+        spi_device_get_trans_result(s_hspi, &rtrans, portMAX_DELAY);
+    }
+}
+
+// 异步发送缓冲区（不等待完成）
+static void _st7789_send_buf_async(uint8_t idx, size_t pixels)
+{
+    gpio_set_level(ST7789_DC_PIN, 1);
+    
+    s_trans[idx].length = pixels * sizeof(uint16_t) * 8;
+    s_trans[idx].tx_buffer = s_pingpong.buf[idx];
+    s_trans[idx].user = (void *)(uintptr_t)idx;
+    
+    s_pingpong.status[idx] = PINGPONG_BUF_SENDING;
+    ESP_ERROR_CHECK(spi_device_queue_trans(s_hspi, &s_trans[idx], portMAX_DELAY));
+}
+
+// 等待所有缓冲区空闲
+static void _st7789_wait_all_idle(void)
+{
+    spi_transaction_t *rtrans;
+    for (int i = 0; i < ST7789_PINGPONG_BUF_COUNT; i++) {
+        while (s_pingpong.status[i] == PINGPONG_BUF_SENDING) {
+            spi_device_get_trans_result(s_hspi, &rtrans, portMAX_DELAY);
+        }
+    }
 }
 #endif
 
@@ -57,24 +105,16 @@ static void _st7789_send_data_polling(const uint8_t *data, size_t len)
     ESP_ERROR_CHECK(spi_device_polling_transmit(s_hspi, &t));
 }
 
-#if ST7789_PINGPONG_BUFFER_ENABLE
-static void _st7789_send_data_queue(const uint8_t *data, size_t len, void *user_data)
+// 使用 DMA 方式发送大块数据
+static void _st7789_send_data_dma(const uint8_t *data, size_t len)
 {
     gpio_set_level(ST7789_DC_PIN, 1);
-
     spi_transaction_t t = {
         .length = len * 8,
-        .tx_buffer = data,  
-        .user = user_data
+        .tx_buffer = data
     };
-
-    spi_transaction_t *rtrans = NULL;
-    while (spi_device_get_trans_result(s_hspi, &rtrans, 0) == ESP_OK) {}  // 等待前一个事务完成(非阻塞)
-
-    ESP_ERROR_CHECK(spi_device_queue_trans(s_hspi, &t, portMAX_DELAY));
-    ESP_ERROR_CHECK(spi_device_get_trans_result(s_hspi, &rtrans, portMAX_DELAY)); // 等待当前事务完成(阻塞)
+    ESP_ERROR_CHECK(spi_device_transmit(s_hspi, &t));
 }
-#endif
 
 static void _st7789_hardware_reset(void) {
     gpio_set_level(ST7789_RES_PIN, 0);
@@ -87,6 +127,12 @@ static void _st7789_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
 {
     uint8_t buf[4];
 
+    // 加上显存偏移
+    x0 += ST7789_X_OFFSET;
+    x1 += ST7789_X_OFFSET;
+    y0 += ST7789_Y_OFFSET;
+    y1 += ST7789_Y_OFFSET;
+
     _st7789_send_cmd(ST7789_CMD_CASET); // 列地址设置
     buf[0] = x0 >> 8; buf[1] = x0 & 0xFF;
     buf[2] = x1 >> 8; buf[3] = x1 & 0xFF;
@@ -98,33 +144,16 @@ static void _st7789_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
     _st7789_send_data_polling(buf, 4);
 }
 
-#if ST7789_PINGPONG_BUFFER_ENABLE
-static void IRAM_ATTR _st7789_spi_dma_done_cb(spi_transaction_t *trans)
-{
-    uint8_t idx = (uint8_t)(uintptr_t)trans->user;
-    s_pingpong.status[idx] = PINGPONG_BUF_IDLE;
-
-    TaskHandle_t t = s_waiting_task;
-    if (t != NULL) {
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        vTaskNotifyGiveFromISR(t, &xHigherPriorityTaskWoken);
-        if (xHigherPriorityTaskWoken == pdTRUE) {
-            portYIELD_FROM_ISR();
-        }
-    }
-}
-#endif
-
 static esp_err_t _st7789_spi_bus_init(void)
 {
     // SPI总线配置
     spi_bus_config_t bus_cfg = {
-        .mosi_io_num = ST7789_SPI_MOSI_PIN,           // 主机输出从机输入引脚（数据线）
-        .miso_io_num = -1,                            // 不使用MISO（显示屏只接收数据）
+        .mosi_io_num = ST7789_SPI_MOSI_PIN,           // MOSI引脚
+        .miso_io_num = -1,                            // 不使用MISO（显示屏不支持触屏）
         .sclk_io_num = ST7789_SPI_SCLK_PIN,           // SPI时钟引脚
         .quadwp_io_num = -1,                          // 不使用四线SPI的WP引脚
         .quadhd_io_num = -1,                          // 不使用四线SPI的HD引脚
-        .max_transfer_sz = ST7789_SPI_MAX_TRANS_SIZE  // 最大传输字节数（单位：字节）
+        .max_transfer_sz = ST7789_MAX_TRANS_BYTES    // 最大传输字节数
     };
 
     esp_err_t ret = spi_bus_initialize(ST7789_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
@@ -139,9 +168,7 @@ static esp_err_t _st7789_spi_bus_init(void)
         .spics_io_num = -1,                      // 不使用CS引脚
         .queue_size = ST7789_SPI_QUEUE_SIZE,     // SPI事务队列大小
 #if ST7789_PINGPONG_BUFFER_ENABLE
-        .post_cb = _st7789_spi_dma_done_cb,      // DMA传输完成中断处理函数
-#else
-        .post_cb = NULL,
+        .post_cb = _st7789_dma_done_cb,          // DMA传输完成回调
 #endif
     };
 
@@ -156,6 +183,40 @@ static esp_err_t _st7789_spi_bus_init(void)
 bool st7789_is_inited(void)
 {
     return s_inited;
+}
+
+void st7789_sleep(void)
+{
+    if (!s_inited) {
+        return;
+    }
+    _st7789_send_cmd(ST7789_CMD_SLEEP_IN);
+    vTaskDelay(pdMS_TO_TICKS(5));
+}
+
+void st7789_wakeup(void)
+{
+    if (!s_inited) {
+        return;
+    }
+    _st7789_send_cmd(ST7789_CMD_SLEEP_OUT);
+    vTaskDelay(pdMS_TO_TICKS(120));
+}
+
+void st7789_display_on(void)
+{
+    if (!s_inited) {
+        return;
+    }
+    _st7789_send_cmd(ST7789_CMD_DISPLAY_ON);
+}
+
+void st7789_display_off(void)
+{
+    if (!s_inited) {
+        return;
+    }
+    _st7789_send_cmd(ST7789_CMD_DISPLAY_OFF);
 }
 
 static esp_err_t _st7789_config_init(void)
@@ -214,31 +275,53 @@ esp_err_t st7789_init(void)
     }
 
     s_inited = true;
+    ESP_LOGI(TAG, "ST7789 初始化完成");
     return ESP_OK;
 }
 
 // 绘制整屏单色(清屏)
 void st7789_fill_screen(uint16_t color)
 {
+    if (!s_inited) {
+        return;
+    }
+
     _st7789_set_window(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
     _st7789_send_cmd(ST7789_CMD_RAMWR);
 
     uint16_t pixel = (color >> 8) | (color << 8);
 
-    uint16_t line_buf[ST7789_WIDTH];
-
-    for (int x = 0; x < ST7789_WIDTH; x++) {
-        line_buf[x] = pixel;
+    size_t max_pixels = ST7789_MAX_TRANS_BYTES / sizeof(uint16_t);
+    uint16_t *fill_buf = (uint16_t *)heap_caps_malloc(ST7789_MAX_TRANS_BYTES, MALLOC_CAP_DMA);
+    if (fill_buf == NULL) {
+        ESP_LOGE(TAG, "清屏缓冲区分配失败");
+        return;
     }
 
-    for (int y = 0; y < ST7789_HEIGHT; y++) {
-        _st7789_send_data_polling((uint8_t *)line_buf, ST7789_WIDTH * 2);
+    for (size_t i = 0; i < max_pixels; i++) {
+        fill_buf[i] = pixel;
     }
+
+    size_t total_pixels = ST7789_WIDTH * ST7789_HEIGHT;
+    size_t offset = 0;
+
+    while (offset < total_pixels) {
+        size_t pixels_left = total_pixels - offset;
+        size_t send_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
+        _st7789_send_data_dma((uint8_t *)fill_buf, send_pixels * sizeof(uint16_t));
+        offset += send_pixels;
+    }
+
+    heap_caps_free(fill_buf);
 }
 
-// 绘像
+// 绘制图像
 void st7789_draw_image(const uint16_t *image_data)
 {
+    if (!s_inited || image_data == NULL) {
+        return;
+    }
+
     _st7789_set_window(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
     _st7789_send_cmd(ST7789_CMD_RAMWR);
 
@@ -246,59 +329,42 @@ void st7789_draw_image(const uint16_t *image_data)
     size_t total_pixels = ST7789_WIDTH * ST7789_HEIGHT;
     size_t offset = 0;
 
-    s_waiting_task = xTaskGetCurrentTaskHandle(); // 获取当前任务句柄
-    (void)ulTaskNotifyTake(pdTRUE, 0);
-
     while (offset < total_pixels) {
-
-        uint8_t idx = s_pingpong.cpu_idx;
-
-        while (s_pingpong.status[idx] != PINGPONG_BUF_IDLE) {
-            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        }
-
+        // 获取空闲缓冲区
+        int idx = _st7789_get_idle_buf();
+        
+        // 标记为正在填充
         s_pingpong.status[idx] = PINGPONG_BUF_FILLING;
-
+        
+        // 计算本次拷贝像素数
         size_t pixels_left = total_pixels - offset;
-        size_t copy_pixels = pixels_left > s_pingpong.buf_size
-                            ? s_pingpong.buf_size
-                            : pixels_left;
-
-        memcpy(
-            s_pingpong.buf[idx],
-            &image_data[offset],
-            copy_pixels * sizeof(uint16_t)
-        );
-
+        size_t copy_pixels = (pixels_left > s_pingpong.buf_size) 
+                            ? s_pingpong.buf_size : pixels_left;
+        
+        // CPU 填充缓冲区
+        memcpy(s_pingpong.buf[idx], &image_data[offset], copy_pixels * sizeof(uint16_t));
+        
+        // 标记为填充完成
         s_pingpong.status[idx] = PINGPONG_BUF_READY;
-
-        _st7789_send_data_queue(
-            (const uint8_t *)s_pingpong.buf[idx],
-            copy_pixels * sizeof(uint16_t),
-            (void *)(uintptr_t)idx
-        );
-
+        
+        // 异步发送（内部会设置为 SENDING）
+        _st7789_send_buf_async(idx, copy_pixels);
+        
         offset += copy_pixels;
-        s_pingpong.cpu_idx ^= 1;
     }
-
-    s_waiting_task = NULL;
+    
+    // 等待所有传输完成
+    _st7789_wait_all_idle();
 #else
+    size_t max_pixels = ST7789_MAX_TRANS_BYTES / sizeof(uint16_t);
     size_t total_pixels = ST7789_WIDTH * ST7789_HEIGHT;
     size_t offset = 0;
 
     while (offset < total_pixels) {
         size_t pixels_left = total_pixels - offset;
-
-        // 每次发送不超过 ST7789_SPI_MAX_TRANS_SIZE 字节（polling 直接发）
-        size_t max_bytes  = ST7789_SPI_MAX_TRANS_SIZE;
-        size_t max_pixels = max_bytes / sizeof(uint16_t);
-
-        size_t copy_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
-        size_t copy_bytes  = copy_pixels * sizeof(uint16_t);
-
-        _st7789_send_data_polling((const uint8_t *)(image_data + offset), copy_bytes);
-        offset += copy_pixels;
+        size_t send_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
+        _st7789_send_data_dma((const uint8_t *)(image_data + offset), send_pixels * sizeof(uint16_t));
+        offset += send_pixels;
     }
 #endif
 }
@@ -306,25 +372,21 @@ void st7789_draw_image(const uint16_t *image_data)
 // 在指定区域绘制 RGB565 图像（适配 LVGL 刷新接口）
 void st7789_draw_area(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint16_t *color_map)
 {
+    if (!s_inited || color_map == NULL) {
+        return;
+    }
+
     _st7789_set_window((uint16_t)x1, (uint16_t)y1, (uint16_t)x2, (uint16_t)y2);
     _st7789_send_cmd(ST7789_CMD_RAMWR);
 
-    uint32_t w = (uint32_t)(x2 - x1 + 1);
-    uint32_t h = (uint32_t)(y2 - y1 + 1);
-    uint32_t total_pixels = w * h;
-    uint32_t offset = 0;
+    size_t max_pixels = ST7789_MAX_TRANS_BYTES / sizeof(uint16_t);
+    size_t total_pixels = (size_t)(x2 - x1 + 1) * (size_t)(y2 - y1 + 1);
+    size_t offset = 0;
 
     while (offset < total_pixels) {
-        uint32_t pixels_left = total_pixels - offset;
-
-        // 每次发送不超过 ST7789_SPI_MAX_TRANS_SIZE 字节（polling 直接发）
-        uint32_t max_bytes  = ST7789_SPI_MAX_TRANS_SIZE;
-        uint32_t max_pixels = max_bytes / sizeof(uint16_t);
-
-        uint32_t copy_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
-        uint32_t copy_bytes  = copy_pixels * sizeof(uint16_t);
-
-        _st7789_send_data_polling((const uint8_t *)(color_map + offset), copy_bytes);
-        offset += copy_pixels;
+        size_t pixels_left = total_pixels - offset;
+        size_t send_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
+        _st7789_send_data_dma((const uint8_t *)(color_map + offset), send_pixels * sizeof(uint16_t));
+        offset += send_pixels;
     }
 }
