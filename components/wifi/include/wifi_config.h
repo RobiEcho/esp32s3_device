@@ -22,4 +22,9 @@
 #define WIFI_AP_CHANNEL        1
 #define WIFI_AP_MAX_CONN       4
 
+/* ================= Reconnect Config ================= */
+#define WIFI_RECONNECT_MAX_ATTEMPTS     5           // 最大重连次数
+#define WIFI_RECONNECT_BASE_DELAY_MS    1000        // 基础延迟 1 秒
+#define WIFI_RECONNECT_MAX_DELAY_MS     30000       // 最大延迟 30 秒
+
 #endif /* __WIFI_CONFIG_H__ */
