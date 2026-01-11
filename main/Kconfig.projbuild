@@ -1,0 +1,11 @@
+menu "Graphics Configuration"
+
+    config GRAPHICS_USE_PSRAM
+        bool "Use PSRAM for graphics buffers"
+        default y if SPIRAM
+        depends on SPIRAM
+        help
+            Enable this to allocate graphics buffers (display, image) in PSRAM.
+            Only available when PSRAM is enabled.
+
+endmenu
