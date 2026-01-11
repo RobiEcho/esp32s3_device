@@ -16,7 +16,7 @@ static bool s_inited = false;
 #include "esp_attr.h"
 
 static st7789_pingpong_t s_pingpong;
-static spi_transaction_t s_trans[ST7789_PINGPONG_BUF_COUNT];  // 预分配事务结构
+static spi_transaction_t s_trans[ST7789_PINGPONG_BUF_COUNT];  // SPI事务
 
 static void _st7789_pingpong_init(void)
 {
@@ -38,14 +38,13 @@ static void _st7789_pingpong_init(void)
 }
 
 // DMA 传输完成回调（ISR 上下文）
-static void IRAM_ATTR _st7789_dma_done_cb(spi_transaction_t *trans)
+static void IRAM_ATTR _st7789_pingpong_dma_done_cb(spi_transaction_t *trans)
 {
     uint8_t idx = (uint8_t)(uintptr_t)trans->user;
     s_pingpong.status[idx] = PINGPONG_BUF_IDLE;
 }
 
-// 获取空闲缓冲区索引，如果没有则等待
-static int _st7789_get_idle_buf(void)
+static int _st7789_pingpong_get_idle_buf(void)
 {
     spi_transaction_t *rtrans;
     
@@ -61,8 +60,8 @@ static int _st7789_get_idle_buf(void)
     }
 }
 
-// 异步发送缓冲区（不等待完成）
-static void _st7789_send_buf_async(uint8_t idx, size_t pixels)
+// 异步SPI发送 Ping-Pong 缓冲区(直接提交SPI事务，不阻塞)
+static void _st7789_pingpong_send_async(uint8_t idx, size_t pixels)
 {
     gpio_set_level(ST7789_DC_PIN, 1);
     
@@ -74,8 +73,8 @@ static void _st7789_send_buf_async(uint8_t idx, size_t pixels)
     ESP_ERROR_CHECK(spi_device_queue_trans(s_hspi, &s_trans[idx], portMAX_DELAY));
 }
 
-// 等待所有缓冲区空闲
-static void _st7789_wait_all_idle(void)
+// 等待所有 Ping-Pong 缓冲区空闲(阻塞)
+static void _st7789_pingpong_wait_all_idle(void)
 {
     spi_transaction_t *rtrans;
     for (int i = 0; i < ST7789_PINGPONG_BUF_COUNT; i++) {
@@ -146,38 +145,31 @@ static void _st7789_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
 
 static esp_err_t _st7789_spi_bus_init(void)
 {
-    // SPI总线配置
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = ST7789_SPI_MOSI_PIN,           // MOSI引脚
         .miso_io_num = -1,                            // 不使用MISO（显示屏不支持触屏）
         .sclk_io_num = ST7789_SPI_SCLK_PIN,           // SPI时钟引脚
         .quadwp_io_num = -1,                          // 不使用四线SPI的WP引脚
         .quadhd_io_num = -1,                          // 不使用四线SPI的HD引脚
-        .max_transfer_sz = ST7789_MAX_TRANS_BYTES    // 最大传输字节数
+        .max_transfer_sz = ST7789_MAX_TRANS_BYTES     // 最大传输字节数
     };
 
-    esp_err_t ret = spi_bus_initialize(ST7789_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    return spi_bus_initialize(ST7789_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+}
 
-    // SPI设备配置
-    spi_device_interface_config_t dev_cfg = {
-        .clock_speed_hz = ST7789_SPI_CLOCK_HZ,   // SPI时钟频率
-        .mode = ST7789_SPI_MODE,                 // SPI模式:3（CPOL=1, CPHA=1）
-        .spics_io_num = -1,                      // 不使用CS引脚
-        .queue_size = ST7789_SPI_QUEUE_SIZE,     // SPI事务队列大小
+static esp_err_t _st7789_spi_dev_init(void)
+{
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = ST7789_SPI_CLOCK_HZ,        // SPI时钟频率
+        .mode = ST7789_SPI_MODE,                      // SPI模式3（CPOL=1, CPHA=1）
+        .spics_io_num = -1,                           // 不使用CS引脚
+        .queue_size = ST7789_SPI_QUEUE_SIZE,          // SPI事务队列大小
 #if ST7789_PINGPONG_BUFFER_ENABLE
-        .post_cb = _st7789_dma_done_cb,          // DMA传输完成回调
+        .post_cb = _st7789_pingpong_dma_done_cb,      // Ping-Pong DMA 完成回调
 #endif
     };
 
-    ret = spi_bus_add_device(ST7789_SPI_HOST, &dev_cfg, &s_hspi);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    return ESP_OK;
+    return spi_bus_add_device(ST7789_SPI_HOST, &devcfg, &s_hspi);
 }
 
 bool st7789_is_inited(void)
@@ -187,35 +179,27 @@ bool st7789_is_inited(void)
 
 void st7789_sleep(void)
 {
-    if (!s_inited) {
-        return;
-    }
+    if (!s_inited) return;
     _st7789_send_cmd(ST7789_CMD_SLEEP_IN);
     vTaskDelay(pdMS_TO_TICKS(5));
 }
 
 void st7789_wakeup(void)
 {
-    if (!s_inited) {
-        return;
-    }
+    if (!s_inited) return;
     _st7789_send_cmd(ST7789_CMD_SLEEP_OUT);
     vTaskDelay(pdMS_TO_TICKS(120));
 }
 
 void st7789_display_on(void)
 {
-    if (!s_inited) {
-        return;
-    }
+    if (!s_inited) return;
     _st7789_send_cmd(ST7789_CMD_DISPLAY_ON);
 }
 
 void st7789_display_off(void)
 {
-    if (!s_inited) {
-        return;
-    }
+    if (!s_inited) return;
     _st7789_send_cmd(ST7789_CMD_DISPLAY_OFF);
 }
 
@@ -252,9 +236,10 @@ esp_err_t st7789_init(void)
     }
 
     esp_err_t ret = _st7789_spi_bus_init();
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
+
+    ret = _st7789_spi_dev_init();
+    if (ret != ESP_OK) return ret;
 
     // GPIO初始化（DC/RES引脚）
     gpio_config_t io_cfg = {
@@ -265,14 +250,10 @@ esp_err_t st7789_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE  // 禁用内部下拉电阻
     };
     ret = gpio_config(&io_cfg);
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     ret = _st7789_config_init();
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     s_inited = true;
     ESP_LOGI(TAG, "ST7789 初始化完成");
@@ -282,9 +263,11 @@ esp_err_t st7789_init(void)
 // 绘制整屏单色(清屏)
 void st7789_fill_screen(uint16_t color)
 {
-    if (!s_inited) {
-        return;
-    }
+    if (!s_inited) return;
+
+#if ST7789_PINGPONG_BUFFER_ENABLE
+    _st7789_pingpong_wait_all_idle();
+#endif
 
     _st7789_set_window(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
     _st7789_send_cmd(ST7789_CMD_RAMWR);
@@ -318,9 +301,11 @@ void st7789_fill_screen(uint16_t color)
 // 绘制图像
 void st7789_draw_image(const uint16_t *image_data)
 {
-    if (!s_inited || image_data == NULL) {
-        return;
-    }
+    if (!s_inited || image_data == NULL) return;
+
+#if ST7789_PINGPONG_BUFFER_ENABLE
+    _st7789_pingpong_wait_all_idle();
+#endif
 
     _st7789_set_window(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
     _st7789_send_cmd(ST7789_CMD_RAMWR);
@@ -331,7 +316,7 @@ void st7789_draw_image(const uint16_t *image_data)
 
     while (offset < total_pixels) {
         // 获取空闲缓冲区
-        int idx = _st7789_get_idle_buf();
+        int idx = _st7789_pingpong_get_idle_buf();
         
         // 标记为正在填充
         s_pingpong.status[idx] = PINGPONG_BUF_FILLING;
@@ -347,14 +332,12 @@ void st7789_draw_image(const uint16_t *image_data)
         // 标记为填充完成
         s_pingpong.status[idx] = PINGPONG_BUF_READY;
         
-        // 异步发送（内部会设置为 SENDING）
-        _st7789_send_buf_async(idx, copy_pixels);
+        // 异步发送（内部会设置状态为 SENDING）
+        _st7789_pingpong_send_async(idx, copy_pixels);
         
         offset += copy_pixels;
     }
     
-    // 等待所有传输完成
-    _st7789_wait_all_idle();
 #else
     size_t max_pixels = ST7789_MAX_TRANS_BYTES / sizeof(uint16_t);
     size_t total_pixels = ST7789_WIDTH * ST7789_HEIGHT;
@@ -372,9 +355,11 @@ void st7789_draw_image(const uint16_t *image_data)
 // 在指定区域绘制 RGB565 图像（适配 LVGL 刷新接口）
 void st7789_draw_area(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint16_t *color_map)
 {
-    if (!s_inited || color_map == NULL) {
-        return;
-    }
+    if (!s_inited || color_map == NULL) return;
+
+#if ST7789_PINGPONG_BUFFER_ENABLE
+    _st7789_pingpong_wait_all_idle();
+#endif
 
     _st7789_set_window((uint16_t)x1, (uint16_t)y1, (uint16_t)x2, (uint16_t)y2);
     _st7789_send_cmd(ST7789_CMD_RAMWR);
