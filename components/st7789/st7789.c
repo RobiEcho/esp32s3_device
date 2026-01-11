@@ -275,7 +275,11 @@ void st7789_fill_screen(uint16_t color)
     uint16_t pixel = (color >> 8) | (color << 8);
 
     size_t max_pixels = ST7789_MAX_TRANS_BYTES / sizeof(uint16_t);
+#if defined(CONFIG_GRAPHICS_USE_PSRAM)
+    uint16_t *fill_buf = (uint16_t *)heap_caps_malloc(ST7789_MAX_TRANS_BYTES, MALLOC_CAP_SPIRAM);
+#else
     uint16_t *fill_buf = (uint16_t *)heap_caps_malloc(ST7789_MAX_TRANS_BYTES, MALLOC_CAP_DMA);
+#endif
     if (fill_buf == NULL) {
         ESP_LOGE(TAG, "清屏缓冲区分配失败");
         return;
@@ -325,9 +329,12 @@ void st7789_draw_image(const uint16_t *image_data)
         size_t pixels_left = total_pixels - offset;
         size_t copy_pixels = (pixels_left > s_pingpong.buf_size) 
                             ? s_pingpong.buf_size : pixels_left;
-        
-        // CPU 填充缓冲区
-        memcpy(s_pingpong.buf[idx], &image_data[offset], copy_pixels * sizeof(uint16_t));
+
+        // CPU 填充缓冲区：做大小端转换处理（硬件需要）
+        for (size_t i = 0; i < copy_pixels; i++) {
+            uint16_t pixel = image_data[offset + i];
+            s_pingpong.buf[idx][i] = (pixel >> 8) | (pixel << 8);
+        }
         
         // 标记为填充完成
         s_pingpong.status[idx] = PINGPONG_BUF_READY;
@@ -337,18 +344,34 @@ void st7789_draw_image(const uint16_t *image_data)
         
         offset += copy_pixels;
     }
-    
+
 #else
     size_t max_pixels = ST7789_MAX_TRANS_BYTES / sizeof(uint16_t);
     size_t total_pixels = ST7789_WIDTH * ST7789_HEIGHT;
-    size_t offset = 0;
+    
+#if defined(CONFIG_GRAPHICS_USE_PSRAM)
+    uint16_t *swap_buf = (uint16_t *)heap_caps_malloc(ST7789_MAX_TRANS_BYTES, MALLOC_CAP_SPIRAM);
+#else
+    uint16_t *swap_buf = (uint16_t *)heap_caps_malloc(ST7789_MAX_TRANS_BYTES, MALLOC_CAP_DMA);
+#endif
+    if (swap_buf == NULL) return;
 
+    size_t offset = 0;
     while (offset < total_pixels) {
         size_t pixels_left = total_pixels - offset;
         size_t send_pixels = (pixels_left > max_pixels) ? max_pixels : pixels_left;
-        _st7789_send_data_dma((const uint8_t *)(image_data + offset), send_pixels * sizeof(uint16_t));
+
+        // 拷贝并交换字节序
+        for (size_t i = 0; i < send_pixels; i++) {
+            uint16_t pixel = image_data[offset + i];
+            swap_buf[i] = (pixel >> 8) | (pixel << 8);
+        }
+
+        _st7789_send_data_dma((uint8_t *)swap_buf, send_pixels * sizeof(uint16_t));
         offset += send_pixels;
     }
+
+    heap_caps_free(swap_buf);
 #endif
 }
 
@@ -375,3 +398,5 @@ void st7789_draw_area(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint
         offset += send_pixels;
     }
 }
+
+

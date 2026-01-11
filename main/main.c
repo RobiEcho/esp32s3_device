@@ -1,11 +1,20 @@
 #include <stdio.h>
+#include <string.h>
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "wifi.h"
+#include "mymqtt.h"
 #include "st7789.h"
-#include "firefly.h"
 
 static const char *TAG = "main";
+
+// 图像帧接收完成回调
+static void _image_cb(const uint16_t *image_data)
+{
+    ESP_LOGI(TAG, "绘制图像");
+    st7789_draw_image(image_data);
+}
 
 void app_main(void)
 {
@@ -17,14 +26,31 @@ void app_main(void)
         ESP_LOGE(TAG, "ST7789 初始化失败");
         return;
     }
+    st7789_fill_screen(0xFFFF);  // 清屏
 
-    // 清屏
-    st7789_fill_screen(0x0000);
-    vTaskDelay(pdMS_TO_TICKS(500));
 
-    // 测试 st7789_draw_image（使用 Ping-Pong 缓冲区）
-    ESP_LOGI(TAG, "显示 firefly 图像");
-    st7789_draw_image(firefly_rgb);
+
+    // 启动 WiFi
+    err = wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi 启动失败");
+        return;
+    }
+
+    // 等待 WiFi 连接
+    while (wifi_get_state() != WIFI_STATE_CONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    // 初始化 MQTT（传入图像回调）
+    err = mymqtt_init(_image_cb);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT 初始化失败");
+        return;
+    }
+
+    ESP_LOGI(TAG, "等待图像数据...");
 
     while(1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
