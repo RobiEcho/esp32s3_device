@@ -1,122 +1,177 @@
 #include "mymqtt.h"
+#include "mymqtt_config.h"
+#include "mqtt_client.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_timer.h"
-#include "st7789.h"
+#include "esp_heap_caps.h"
+#include <string.h>
 
-static uint8_t img_buf[IMG_BUF_SIZE];              // 图像数据缓冲区（240*240*2=115200字节）
-static size_t img_buf_len = 0;                     // 当前已接收的图像数据长度
-static int64_t last_img_time = 0;                  // 上次接收图像数据的时间戳（用于超时检测）
+static const char *TAG = "mymqtt";
 
-static esp_mqtt_client_handle_t hmqtt = NULL;      // MQTT客户端句柄
-static mqtt_conn_callback_t conn_callback = NULL;  // 用户注册的连接状态回调函数
-static volatile bool mqtt_connected = false;       // MQTT连接状态标志（多任务访问需volatile）
-static const char *TAG = "MQTT";                   // 日志标签
+static esp_mqtt_client_handle_t s_hmqtt = NULL;
+static bool s_inited = false;
+static volatile bool s_connected = false;
 
-static void event_handler(void *args, esp_event_base_t base, int32_t event_id, void *event_data);
+static mymqtt_image_cb_t s_image_cb = NULL;
 
-void mqtt_init(mqtt_conn_callback_t conn_cb) {
-    // MQTT客户端配置
-    esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = MQTT_URI,               // MQTT代理服务器地址
-        .credentials.client_id = MQTT_CLIENT_ID,      // 客户端唯一标识符
-        .buffer.size = MQTT_RX_BUFFER_SIZE,           // 接收缓冲区大小
-        .network.disable_auto_reconnect = false       // 启用自动重连
-    };
+static uint8_t *s_img_buf = NULL;           // 图像拼接缓冲区（115200 字节）
+static size_t s_img_buf_len = 0;            // 当前已接收字节数
+static bool s_receiving_image = false;      // 是否正在接收图像分片
 
-    hmqtt = esp_mqtt_client_init(&mqtt_cfg);
-    conn_callback = conn_cb;
-
-    // 注册事件回调函数
-    esp_mqtt_client_register_event(hmqtt, ESP_EVENT_ANY_ID, event_handler, NULL);
-    // 启动MQTT客户端
-    esp_mqtt_client_start(hmqtt);
-}
-
-int mqtt_publish(const char *topic, const void *data, size_t len, int qos) {
-    if (!hmqtt || !topic || !data) {
-        ESP_LOGW(TAG, "MQTT发布失败：参数无效");
-        return -1;
-    }
-    
-    if (!mqtt_connected) {
-        ESP_LOGW(TAG, "MQTT未连接，无法发布数据");
-        return -1;
-    }
-    
-    int msg_id = esp_mqtt_client_publish(hmqtt, topic, data, len, qos, 0);
-    if (msg_id == -1) {
-        ESP_LOGE(TAG, "MQTT发布失败，主题: %s", topic);
-    }
-    return msg_id;
-}
-
-esp_err_t mqtt_subscribe(const char *topic, int qos) {
-    if (!hmqtt || !topic) return ESP_FAIL;
-    return esp_mqtt_client_subscribe(hmqtt, topic, qos);
-}
-
-bool mqtt_is_connected(void) {
-    return mqtt_connected;
-}
-
-static void event_handler(void *args, esp_event_base_t base, int32_t event_id, void *event_data) 
+// 处理图像分片数据
+static void _mymqtt_handle_image_data(const uint8_t *data, size_t data_len)
 {
+    if (s_img_buf == NULL) return;
+
+    // 溢出检测
+    if (s_img_buf_len + data_len > MYMQTT_IMG_BUF_SIZE) {
+        ESP_LOGW(TAG, "图像数据溢出，重置");
+        s_img_buf_len = 0;
+        return;
+    }
+
+    // 拼接数据到缓冲区
+    memcpy(s_img_buf + s_img_buf_len, data, data_len);
+    s_img_buf_len += data_len;
+
+    // 收满一帧，调用回调绘制
+    if (s_img_buf_len == MYMQTT_IMG_BUF_SIZE) {
+        ESP_LOGI(TAG, "收到完整图像帧");
+        if (s_image_cb) {
+            s_image_cb((const uint16_t *)s_img_buf);
+        }
+        s_img_buf_len = 0;
+        s_receiving_image = false;
+    }
+}
+
+// MQTT 事件处理
+static void _mymqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    (void)arg;
+    (void)base;
     esp_mqtt_event_handle_t event = event_data;
-    
+
     switch (event->event_id) {
-    case MQTT_EVENT_CONNECTED:// 连接成功事件
-        ESP_LOGI(TAG, "MQTT 连接成功！");
-        mqtt_connected = true;  // 更新连接状态
-        if (conn_callback) conn_callback(true);      
-        mqtt_subscribe(IMG_TOPIC, 1);// 订阅图像主题
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "已连接");
+        s_connected = true;
+        // 自动订阅图像主题
+        if (s_image_cb) {
+            esp_mqtt_client_subscribe(s_hmqtt, MYMQTT_TOPIC_IMAGE, 1);
+        }
         break;
 
-    case MQTT_EVENT_DISCONNECTED:// 断开连接事件
-        ESP_LOGI(TAG, "MQTT 断开连接！");
-        mqtt_connected = false;  // 更新连接状态
-        img_buf_len = 0;         // 清理未完成的图像接收
-        if (conn_callback) conn_callback(false);// 调用回调函数
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGW(TAG, "已断开");
+        s_connected = false;
+        s_img_buf_len = 0;
+        s_receiving_image = false;
         break;
 
-    case MQTT_EVENT_DATA:// 收到消息事件
-        if (strncmp(event->topic, IMG_TOPIC, event->topic_len) == 0) {
-            int64_t current_time = esp_timer_get_time();
-            
-            // 超时检测
-            if (img_buf_len > 0 && (current_time - last_img_time) > 100000) { // 100ms
-                ESP_LOGW(TAG, "图像接收超时，重置缓冲区（已接收 %d/%d 字节）", 
-                         img_buf_len, IMG_BUF_SIZE);
-                img_buf_len = 0;
+    case MQTT_EVENT_DATA:
+        // 第一个分片带主题名，后续分片 topic_len=0
+        if (event->topic_len > 0) {
+            s_receiving_image = (strncmp(event->topic, MYMQTT_TOPIC_IMAGE, event->topic_len) == 0);
+            if (s_receiving_image) {
+                s_img_buf_len = 0;  // 新图像，重置缓冲区
             }
-            
-            last_img_time = current_time;  // 更新时间戳
-            
-            // 检查是否会溢出
-            if (img_buf_len + event->data_len <= IMG_BUF_SIZE) {
-                memcpy(img_buf + img_buf_len, event->data, event->data_len);
-                img_buf_len += event->data_len;// 更新指针位置
-            } else {
-                ESP_LOGW(TAG, "图像数据溢出，已重置缓冲区（尝试写入 %d 字节，已有 %d 字节）", 
-                         event->data_len, img_buf_len);
-                img_buf_len = 0; // 溢出时丢弃本次数据
-            }
-            
-            // 判断是否收满一帧，显示图像
-            if (img_buf_len == IMG_BUF_SIZE) {
-                ESP_LOGI(TAG, "收到完整图像，总长度: %d 字节", img_buf_len);
-                // st7789_display_raw(img_buf, IMG_BUF_SIZE);
-                img_buf_len = 0; // 重置缓冲区
-            }
+        }
+        // 正在接收图像，处理分片数据
+        if (s_receiving_image && event->data && event->data_len > 0) {
+            _mymqtt_handle_image_data((const uint8_t *)event->data, event->data_len);
         }
         break;
 
     case MQTT_EVENT_ERROR:
-        ESP_LOGE(TAG, "MQTT 发生错误，错误代码: %d", event->error_handle->error_type);
+        ESP_LOGE(TAG, "错误: %d", event->error_handle->error_type);
         break;
 
     default:
         break;
     }
+}
+
+esp_err_t mymqtt_init(mymqtt_image_cb_t image_cb)
+{
+    if (s_inited) {
+        return ESP_OK;
+    }
+
+    s_image_cb = image_cb;
+
+    // 如果需要接收图像，分配拼接缓冲区
+    if (image_cb) {
+#if defined(CONFIG_GRAPHICS_USE_PSRAM)
+        s_img_buf = heap_caps_malloc(MYMQTT_IMG_BUF_SIZE, MALLOC_CAP_SPIRAM);
+#else
+        s_img_buf = heap_caps_malloc(MYMQTT_IMG_BUF_SIZE, MALLOC_CAP_DMA);
+#endif
+        if (s_img_buf == NULL) {
+            ESP_LOGE(TAG, "图像缓冲区分配失败");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    // MQTT 客户端配置
+    esp_mqtt_client_config_t cfg = {
+        .broker.address.uri = MYMQTT_BROKER_URI,                   // 代理服务器地址
+        .credentials.client_id = MYMQTT_CLIENT_ID,                 // 客户端ID
+        .credentials.username = MYMQTT_USERNAME,                   // 用户名
+        .credentials.authentication.password = MYMQTT_PASSWORD,    // 密码
+        .buffer.size = MYMQTT_RX_BUFFER_SIZE,                      // 接收缓冲区大小
+        .network.disable_auto_reconnect = false,                   // 启用自动重连
+    };
+
+    // 创建 MQTT 客户端
+    s_hmqtt = esp_mqtt_client_init(&cfg);
+    if (s_hmqtt == NULL) {
+        ESP_LOGE(TAG, "客户端初始化失败");
+        return ESP_FAIL;
+    }
+
+    // 注册事件回调
+    esp_err_t ret = esp_mqtt_client_register_event(s_hmqtt, ESP_EVENT_ANY_ID, _mymqtt_event_handler, NULL);
+    if (ret != ESP_OK) return ret;
+
+    // 启动客户端
+    ret = esp_mqtt_client_start(s_hmqtt);
+    if (ret != ESP_OK) return ret;
+
+    s_inited = true;
+    ESP_LOGI(TAG, "初始化完成");
+    return ESP_OK;
+}
+
+bool mymqtt_is_inited(void)
+{
+    return s_inited;
+}
+
+bool mymqtt_is_connected(void)
+{
+    return s_connected;
+}
+
+int mymqtt_publish(const char *topic, const void *data, size_t len, int qos)
+{
+    if (!s_inited || !s_connected) return -1;
+    if (topic == NULL || data == NULL) return -1;
+
+    return esp_mqtt_client_publish(s_hmqtt, topic, data, len, qos, 0);
+}
+
+esp_err_t mymqtt_subscribe(const char *topic, int qos)
+{
+    if (!s_inited || topic == NULL) return ESP_ERR_INVALID_ARG;
+
+    int ret = esp_mqtt_client_subscribe(s_hmqtt, topic, qos);
+    return (ret >= 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t mymqtt_unsubscribe(const char *topic)
+{
+    if (!s_inited || topic == NULL) return ESP_ERR_INVALID_ARG;
+
+    int ret = esp_mqtt_client_unsubscribe(s_hmqtt, topic);
+    return (ret >= 0) ? ESP_OK : ESP_FAIL;
 }
