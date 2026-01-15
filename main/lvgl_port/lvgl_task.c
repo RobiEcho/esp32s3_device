@@ -24,11 +24,7 @@ static portTASK_FUNCTION(lvgl_task_func, arg)
     lv_port_disp_init();
 
     /* 配置LVGL时钟 */
-    if (lvgl_ui_tick() != ESP_OK) {
-        ESP_LOGE(TAG, "failed to config LVGL tick");
-        vTaskDelete(NULL);
-        return;
-    }
+    ESP_ERROR_CHECK(lvgl_ui_tick());
 
     /* 创建UI界面 */
     lvgl_ui_create();

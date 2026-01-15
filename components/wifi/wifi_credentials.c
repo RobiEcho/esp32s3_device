@@ -17,16 +17,10 @@ esp_err_t wifi_credentials_save_sta(const char *ssid, const char *password)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = nvs_storage_set_str(WIFI_STA_NAMESPACE, SSID_KEY, ssid);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(nvs_storage_set_str(WIFI_STA_NAMESPACE, SSID_KEY, ssid));
 
     if (password != NULL) {
-        err = nvs_storage_set_str(WIFI_STA_NAMESPACE, PASSWORD_KEY, password);
-        if (err != ESP_OK) {
-            return err;
-        }
+        ESP_ERROR_CHECK(nvs_storage_set_str(WIFI_STA_NAMESPACE, PASSWORD_KEY, password));
     }
 
     ESP_LOGI(TAG, "STA 凭证已保存");
@@ -39,14 +33,10 @@ esp_err_t wifi_credentials_load_sta(char *ssid, size_t ssid_len, char *password,
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = nvs_storage_get_str(WIFI_STA_NAMESPACE, SSID_KEY, ssid, ssid_len);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "读取 STA SSID 失败");
-        return err;
-    }
+    ESP_ERROR_CHECK(nvs_storage_get_str(WIFI_STA_NAMESPACE, SSID_KEY, ssid, ssid_len));
 
     if (password != NULL && pass_len > 0) {
-        err = nvs_storage_get_str(WIFI_STA_NAMESPACE, PASSWORD_KEY, password, pass_len);
+        esp_err_t err = nvs_storage_get_str(WIFI_STA_NAMESPACE, PASSWORD_KEY, password, pass_len);
         if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGW(TAG, "读取 STA 密码失败");
             return err;
@@ -63,16 +53,10 @@ esp_err_t wifi_credentials_save_ap(const char *ssid, const char *password)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = nvs_storage_set_str(WIFI_AP_NAMESPACE, SSID_KEY, ssid);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(nvs_storage_set_str(WIFI_AP_NAMESPACE, SSID_KEY, ssid));
 
     if (password != NULL) {
-        err = nvs_storage_set_str(WIFI_AP_NAMESPACE, PASSWORD_KEY, password);
-        if (err != ESP_OK) {
-            return err;
-        }
+        ESP_ERROR_CHECK(nvs_storage_set_str(WIFI_AP_NAMESPACE, PASSWORD_KEY, password));
     }
 
     ESP_LOGI(TAG, "AP 凭证已保存");
@@ -85,14 +69,10 @@ esp_err_t wifi_credentials_load_ap(char *ssid, size_t ssid_len, char *password, 
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = nvs_storage_get_str(WIFI_AP_NAMESPACE, SSID_KEY, ssid, ssid_len);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "读取 AP SSID 失败");
-        return err;
-    }
+    ESP_ERROR_CHECK(nvs_storage_get_str(WIFI_AP_NAMESPACE, SSID_KEY, ssid, ssid_len));
 
     if (password != NULL && pass_len > 0) {
-        err = nvs_storage_get_str(WIFI_AP_NAMESPACE, PASSWORD_KEY, password, pass_len);
+        esp_err_t err = nvs_storage_get_str(WIFI_AP_NAMESPACE, PASSWORD_KEY, password, pass_len);
         if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGW(TAG, "读取 AP 密码失败");
             return err;

@@ -21,21 +21,13 @@ void app_main(void)
     ESP_LOGI(TAG, "应用启动");
     
     // 初始化 ST7789
-    esp_err_t err = st7789_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ST7789 初始化失败");
-        return;
-    }
+    ESP_ERROR_CHECK(st7789_init());
     st7789_fill_screen(0xFFFF);  // 清屏
 
 
 
     // 启动 WiFi
-    err = wifi_start();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "WiFi 启动失败");
-        return;
-    }
+    ESP_ERROR_CHECK(wifi_start());
 
     // 等待 WiFi 连接
     while (wifi_get_state() != WIFI_STATE_CONNECTED) {
@@ -44,11 +36,7 @@ void app_main(void)
 
     vTaskDelay(pdMS_TO_TICKS(3000));
     // 初始化 MQTT（传入图像回调）
-    err = mymqtt_init(_image_cb);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "MQTT 初始化失败");
-        return;
-    }
+    ESP_ERROR_CHECK(mymqtt_init(_image_cb));
 
     ESP_LOGI(TAG, "等待图像数据...");
 

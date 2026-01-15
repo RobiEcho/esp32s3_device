@@ -19,11 +19,7 @@ static void _mpu6050_producer_task(void *arg)
     while (1) {
         uint64_t current_time = esp_timer_get_time();
         if (current_time - last_read_time >= read_interval) {
-            esp_err_t err = mpu6050_read_raw_data(&raw_data);
-            if (err != ESP_OK) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                continue;
-            }
+            ESP_ERROR_CHECK(mpu6050_read_raw_data(&raw_data));
             last_read_time = current_time;
 
             xQueueSend(g_mpu6050_queue, &raw_data, portMAX_DELAY);
@@ -42,10 +38,7 @@ static void _mpu6050_consumer_task(void *arg)
 
     while (1) {
         if (xQueueReceive(g_mpu6050_queue, &raw_data, portMAX_DELAY) == pdTRUE) {
-            esp_err_t err = mpu6050_convert_data(&raw_data, &converted_data);
-            if (err != ESP_OK) {
-                continue;
-            }
+            ESP_ERROR_CHECK(mpu6050_convert_data(&raw_data, &converted_data));
 
             ESP_LOGI(TAG, "陀螺仪[dps]  X: %.2f  Y: %.2f  Z: %.2f",
                      converted_data.gyro_x, converted_data.gyro_y, converted_data.gyro_z);
@@ -58,19 +51,11 @@ static void _mpu6050_consumer_task(void *arg)
 esp_err_t mpu6050_task_init(void)
 {
     // 初始化 MPU6050 驱动
-    esp_err_t err = mpu6050_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "MPU6050 初始化失败");
-        return err;
-    }
+    ESP_ERROR_CHECK(mpu6050_init());
 
     // 校准陀螺仪（静止状态下进行）
     ESP_LOGI(TAG, "请保持设备静止，正在校准...");
-    err = mpu6050_calibrate_gyro(NULL, 100);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "陀螺仪校准失败");
-        return err;
-    }
+    ESP_ERROR_CHECK(mpu6050_calibrate_gyro(NULL, 100));
 
     // 创建数据队列
     g_mpu6050_queue = xQueueCreate(MPU6050_QUEUE_LEN, sizeof(mpu6050_raw_data_t));

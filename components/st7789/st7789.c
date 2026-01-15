@@ -235,11 +235,9 @@ esp_err_t st7789_init(void)
         return ESP_OK;
     }
 
-    esp_err_t ret = _st7789_spi_bus_init();
-    if (ret != ESP_OK) return ret;
+    ESP_ERROR_CHECK(_st7789_spi_bus_init());
 
-    ret = _st7789_spi_dev_init();
-    if (ret != ESP_OK) return ret;
+    ESP_ERROR_CHECK(_st7789_spi_dev_init());
 
     // GPIO初始化（DC/RES引脚）
     gpio_config_t io_cfg = {
@@ -249,11 +247,9 @@ esp_err_t st7789_init(void)
         .pull_up_en = GPIO_PULLUP_DISABLE,     // 禁用内部上拉电阻
         .pull_down_en = GPIO_PULLDOWN_DISABLE  // 禁用内部下拉电阻
     };
-    ret = gpio_config(&io_cfg);
-    if (ret != ESP_OK) return ret;
+    ESP_ERROR_CHECK(gpio_config(&io_cfg));
 
-    ret = _st7789_config_init();
-    if (ret != ESP_OK) return ret;
+    ESP_ERROR_CHECK(_st7789_config_init());
 
     s_inited = true;
     ESP_LOGI(TAG, "ST7789 初始化完成");

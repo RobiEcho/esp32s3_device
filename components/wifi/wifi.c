@@ -144,10 +144,7 @@ static esp_err_t _wifi_init(void)
 
     // 检查 NVS 是否已初始化，如果未初始化则初始化
     if (!g_nvs_initialized) {
-        esp_err_t err = nvs_storage_init();
-        if (err != ESP_OK) {
-            return err;
-        }
+        ESP_ERROR_CHECK(nvs_storage_init());
     }
 
     // 初始化网络接口层（esp_netif）
@@ -179,22 +176,13 @@ static esp_err_t _wifi_init(void)
     }
 
     // 注册 WiFi 事件处理函数（处理连接/断开等）
-    err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, _wifi_event_handler, NULL);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, _wifi_event_handler, NULL));
 
     // 注册 IP 事件处理函数（处理获取 IP 等）
 #if (WIFI_APP_MODE == WIFI_APP_MODE_STA)
-    err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, _wifi_event_handler, NULL);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, _wifi_event_handler, NULL));
 #elif (WIFI_APP_MODE == WIFI_APP_MODE_AP)
-    err = esp_event_handler_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, _wifi_event_handler, NULL);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, _wifi_event_handler, NULL));
 #endif
 
     s_inited = true;
@@ -222,15 +210,9 @@ static esp_err_t _wifi_connect_sta(const char *ssid, const char *pass)
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
 
-    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = esp_wifi_start();
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    esp_err_t err = esp_wifi_start();
     if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
         return err;
     }
@@ -266,17 +248,11 @@ static esp_err_t _wifi_start_ap(const char *ssid, const char *password)
         wifi_config.ap.authmode = WIFI_AP_AUTHMODE;
     }
 
-    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_AP);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
 
-    err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
 
-    err = esp_wifi_start();
+    esp_err_t err = esp_wifi_start();
     if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
         return err;
     }
@@ -288,10 +264,7 @@ static esp_err_t _wifi_start_ap(const char *ssid, const char *password)
 esp_err_t wifi_start(void)
 {
     if (!s_inited) {
-        esp_err_t err = _wifi_init();
-        if (err != ESP_OK) {
-            return err;
-        }
+        ESP_ERROR_CHECK(_wifi_init());
     }
 
 #if (WIFI_APP_MODE == WIFI_APP_MODE_STA)

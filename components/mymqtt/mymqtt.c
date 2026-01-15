@@ -130,12 +130,10 @@ esp_err_t mymqtt_init(mymqtt_image_cb_t image_cb)
     }
 
     // 注册事件回调
-    esp_err_t ret = esp_mqtt_client_register_event(s_hmqtt, ESP_EVENT_ANY_ID, _mymqtt_event_handler, NULL);
-    if (ret != ESP_OK) return ret;
+    ESP_ERROR_CHECK(esp_mqtt_client_register_event(s_hmqtt, ESP_EVENT_ANY_ID, _mymqtt_event_handler, NULL));
 
     // 启动客户端
-    ret = esp_mqtt_client_start(s_hmqtt);
-    if (ret != ESP_OK) return ret;
+    ESP_ERROR_CHECK(esp_mqtt_client_start(s_hmqtt));
 
     s_inited = true;
     ESP_LOGI(TAG, "初始化完成");

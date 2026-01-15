@@ -37,12 +37,7 @@ static esp_err_t _i2c_bus_init(void)
         .flags.enable_internal_pullup = true
     };
 
-    esp_err_t err = i2c_new_master_bus(&bus_cfg, &s_bus_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "初始化 I2C 总线失败: %s", esp_err_to_name(err));
-        s_bus_handle = NULL;
-        return err;
-    }
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &s_bus_handle));
 
     return ESP_OK;
 }
@@ -65,12 +60,7 @@ static esp_err_t _mpu6050_device_init(void)
         .scl_speed_hz = MPU6050_I2C_CLK_SPEED,
     };
 
-    esp_err_t err = i2c_master_bus_add_device(s_bus_handle, &dev_cfg, &s_dev_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "添加 MPU6050 设备失败: %s", esp_err_to_name(err));
-        s_dev_handle = NULL;
-        return err;
-    }
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(s_bus_handle, &dev_cfg, &s_dev_handle));
 
     return ESP_OK;
 }
@@ -85,17 +75,12 @@ static esp_err_t _mpu6050_verify_device(void)
     uint8_t who_am_i = 0;
     uint8_t reg_addr = MPU6050_REG_WHO_AM_I;
 
-    esp_err_t err = i2c_master_transmit_receive(
+    ESP_ERROR_CHECK(i2c_master_transmit_receive(
         s_dev_handle,
         &reg_addr, 1,
         &who_am_i, 1,
         100  // 100ms 超时
-    );
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "读取 WHO_AM_I 失败: %s", esp_err_to_name(err));
-        return err;
-    }
+    ));
 
     if (who_am_i != MPU6050_WHO_AM_I_VALUE) {
         ESP_LOGE(TAG, "设备 ID 不匹配，期望: 0x%02X，实际: 0x%02X",
@@ -115,11 +100,7 @@ static esp_err_t _mpu6050_wakeup(void)
     }
 
     uint8_t wakeup_cmd[] = {MPU6050_REG_PWR_MGMT_1, MPU6050_PWR_MGMT_1_WAKEUP};
-    esp_err_t err = i2c_master_transmit(s_dev_handle, wakeup_cmd, sizeof(wakeup_cmd), -1);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "唤醒 MPU6050 失败: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(i2c_master_transmit(s_dev_handle, wakeup_cmd, sizeof(wakeup_cmd), -1));
 
     return ESP_OK;
 }
@@ -132,28 +113,16 @@ esp_err_t mpu6050_init(void)
     }
 
     // 初始化 I2C 总线
-    esp_err_t err = _i2c_bus_init();
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(_i2c_bus_init());
 
     // 初始化 MPU6050 设备
-    err = _mpu6050_device_init();
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(_mpu6050_device_init());
 
     // 验证设备是否正确连接
-    err = _mpu6050_verify_device();
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(_mpu6050_verify_device());
 
     // 唤醒 MPU6050
-    err = _mpu6050_wakeup();
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(_mpu6050_wakeup());
 
     s_inited = true;
     ESP_LOGI(TAG, "MPU6050 初始化成功");
@@ -185,17 +154,12 @@ esp_err_t mpu6050_read_raw_data(mpu6050_raw_data_t *data)
     uint8_t reg_addr = MPU6050_REG_ACCEL_XOUT_H;
     uint8_t raw_data[MPU6050_DATA_BYTES(NUM_SENSOR_DATA)];
 
-    esp_err_t err = i2c_master_transmit_receive(
+    ESP_ERROR_CHECK(i2c_master_transmit_receive(
         s_dev_handle,
         &reg_addr, 1,
         raw_data, sizeof(raw_data),
         100  // 100ms 超时
-    );
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "读取数据失败: %s", esp_err_to_name(err));
-        return err;
-    }
+    ));
 
     // 解析原始数据（注意：加速度和陀螺仪之间有2字节温度数据）
     data->accel_x = (int16_t)((raw_data[0] << 8) | raw_data[1]);
@@ -253,10 +217,7 @@ esp_err_t mpu6050_read_data(mpu6050_data_t *data)
     mpu6050_raw_data_t raw_data;
 
     // 读取原始数据
-    esp_err_t err = mpu6050_read_raw_data(&raw_data);
-    if (err != ESP_OK) {
-        return err;
-    }
+    ESP_ERROR_CHECK(mpu6050_read_raw_data(&raw_data));
 
     // 转换为物理单位
     return mpu6050_convert_data(&raw_data, data);
@@ -282,11 +243,7 @@ esp_err_t mpu6050_calibrate_gyro(mpu6050_gyro_bias_t *bias, uint16_t samples)
     ESP_LOGI(TAG, "开始校准陀螺仪，采样次数: %u", samples);
 
     for (uint16_t i = 0; i < samples; i++) {
-        esp_err_t err = mpu6050_read_raw_data(&temp);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "校准过程中读取数据失败: %s", esp_err_to_name(err));
-            return err;
-        }
+        ESP_ERROR_CHECK(mpu6050_read_raw_data(&temp));
 
         sum_x += temp.gyro_x;
         sum_y += temp.gyro_y;
@@ -325,11 +282,7 @@ esp_err_t mpu6050_set_gyro_range(uint8_t range)
     }
 
     uint8_t config[] = {MPU6050_REG_GYRO_CONFIG, range};
-    esp_err_t err = i2c_master_transmit(s_dev_handle, config, sizeof(config), -1);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置陀螺仪量程失败: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(i2c_master_transmit(s_dev_handle, config, sizeof(config), -1));
 
     // 更新灵敏度
     switch (range) {
@@ -370,11 +323,7 @@ esp_err_t mpu6050_set_accel_range(uint8_t range)
     }
 
     uint8_t config[] = {MPU6050_REG_ACCEL_CONFIG, range};
-    esp_err_t err = i2c_master_transmit(s_dev_handle, config, sizeof(config), -1);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置加速度计量程失败: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(i2c_master_transmit(s_dev_handle, config, sizeof(config), -1));
 
     // 更新灵敏度
     switch (range) {

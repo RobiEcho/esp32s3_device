@@ -51,19 +51,9 @@ esp_err_t lvgl_ui_tick(void)
         .name = "lvgl_tick"        // 定时器名称
     };
 
-    esp_err_t ret = esp_timer_create(&lvgl_tick_timer_args, &s_lvgl_tick_timer); // 创建定时器
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to create LVGL tick timer");
-        return ret;
-    }
+    ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &s_lvgl_tick_timer)); // 创建定时器
 
-    ret = esp_timer_start_periodic(s_lvgl_tick_timer, 1 * 1000); // 启动定时器，周期为1ms
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start LVGL tick timer");
-        esp_timer_delete(s_lvgl_tick_timer);
-        s_lvgl_tick_timer = NULL;
-        return ret;
-    }
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_lvgl_tick_timer, 1 * 1000)); // 启动定时器，周期为1ms
 
     ESP_LOGI(TAG, "LVGL tick timer configured");
     return ESP_OK;
